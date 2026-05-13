@@ -28,3 +28,9 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Build Docker image
+        run: docker build -t damsecure-sizer:ci .
+
+      - name: Smoke test Docker image
+        run: docker run --rm damsecure-sizer:ci --help

@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.github
+.turbo
+*.tsbuildinfo
+.DS_Store
+.sizer.env
+*.csv

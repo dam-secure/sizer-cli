@@ -15,10 +15,7 @@
   ],
   "scripts": {
     "dev": "NODE_OPTIONS='--disable-warning=DEP0040' tsx src/cli.ts",
-    "embed-ignorefile": "node scripts/embed-ignorefile.mjs",
-    "prebuild": "npm run embed-ignorefile",
     "build": "tsc -p tsconfig.build.json",
-    "build:binary": "NODE_OPTIONS='--disable-warning=DEP0040' tsx scripts/build-binary.ts",
     "clean": "rm -rf dist *.tsbuildinfo",
     "lint": "tsc -p tsconfig.build.json --noEmit",
     "test": "NODE_OPTIONS='--disable-warning=DEP0040' vitest run --config vitest.config.ts"

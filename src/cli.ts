@@ -4,7 +4,7 @@
 // api/worker packages use NODE_OPTIONS='--disable-warning=DEP0040' on
 // their npm scripts (mirrored on our dev/test scripts in package.json);
 // we also need a runtime filter that travels with the compiled
-// `dist/cli.js` and Bun static-binary install paths. Targets DEP0040 by
+// `dist/cli.js` and Docker install paths. Targets DEP0040 by
 // code — every other warning still surfaces via the saved default
 // listeners. Must run before any imports so the filter is installed
 // before transitive deps trigger the warning at load time.
@@ -120,37 +120,19 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-function isBunRuntime(): boolean {
-  return typeof (process.versions as NodeJS.ProcessVersions & { bun?: string }).bun === 'string';
-}
-
-function isImportMetaMain(): boolean {
-  return (import.meta as ImportMeta & { main?: boolean }).main === true;
-}
-
 function looksLikeNodeStyleArgv(argv: string[]): boolean {
   const script = argv[1] ?? '';
   return (
     script.endsWith('cli.ts') ||
     script.endsWith('cli.js') ||
-    script.endsWith('damsecure-sizer') ||
-    /damsecure-sizer-[\w-]+$/.test(script)
+    script.endsWith('damsecure-sizer')
   );
 }
 
-function argvForCommander(argv: string[]): string[] {
-  // Bun compiled executables can expose argv as [binary, ...userArgs] rather
-  // than Node's [runtime, script, ...userArgs]. Commander expects the latter.
-  if (isBunRuntime() && isImportMetaMain() && !looksLikeNodeStyleArgv(argv)) {
-    return [argv[0] ?? 'damsecure-sizer', 'damsecure-sizer', ...argv.slice(1)];
-  }
-  return argv;
-}
-
 // Only run when invoked directly (lets tests import the program lazily).
-const isDirect = isImportMetaMain() || looksLikeNodeStyleArgv(process.argv);
+const isDirect = looksLikeNodeStyleArgv(process.argv);
 if (isDirect) {
-  void main(argvForCommander(process.argv));
+  void main(process.argv);
 }
 
 export { makeProgram, main };

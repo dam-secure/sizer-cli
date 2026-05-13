@@ -2,7 +2,7 @@
  * File filter — applies BOTH sources of ignore patterns required by the plan:
  *
  *   1. **Global** patterns from the bundled ignorefile.txt (production parity),
- *      embedded into the binary at build time. See `scripts/embed-ignorefile.mjs`.
+ *      mirrored into a checked-in TS constant for the Docker/Node runtime.
  *   2. **Per-repo** patterns from `.damsecure-ignore` at HEAD of each repo,
  *      passed in by the caller (or `null` for "no per-repo patterns").
  *
@@ -17,7 +17,7 @@ import {
 import { GLOBAL_IGNORE_FILE_CONTENT } from '../generated/ignoreFileContent.js';
 
 /**
- * Parsed once at module init — the embedded global content does not change
+ * Parsed once at module init — the global content does not change
  * across the lifetime of the process.
  */
 const GLOBAL_PATTERNS: readonly string[] = Object.freeze(
