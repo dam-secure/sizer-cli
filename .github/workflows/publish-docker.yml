@@ -1,4 +1,4 @@
-name: Release
+name: Publish Docker Image
 
 on:
   push:
@@ -14,7 +14,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  release:
+  publish-docker-image:
     runs-on: ubuntu-latest
 
     steps:

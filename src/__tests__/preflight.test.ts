@@ -2,7 +2,7 @@
  * Preflight unit tests.
  *
  *  - resolveToken: precedence (flag > env > friendly error)
- *  - ensureGitVersion: parses real-world output, rejects too-old
+ *  - preflight: checks git is available in the Docker runtime
  *  - redactString: scrubs the credential portion of a clone URL
  *  - installLogRedactor: does what it says by wrapping process.stdout.write
  *
@@ -13,8 +13,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
-  ensureGitVersion,
   installLogRedactor,
+  preflight,
   redactString,
   resolveToken,
   PreflightError,
@@ -46,28 +46,29 @@ describe('resolveToken', () => {
   });
 });
 
-describe('ensureGitVersion', () => {
-  it('accepts modern git', () => {
-    expect(() => ensureGitVersion('git version 2.45.0')).not.toThrow();
-    expect(() =>
-      ensureGitVersion('git version 2.40.1.windows.1')
-    ).not.toThrow();
-    expect(() =>
-      ensureGitVersion('git version 2.45.0 (Apple Git-145)')
-    ).not.toThrow();
+describe('preflight', () => {
+  it('returns the resolved token and runs the git availability check', async () => {
+    const checkGit = vi.fn(async () => {});
+    await expect(
+      preflight({
+        tokenFlag: 'flag-value',
+        env: {},
+        checkGit,
+      })
+    ).resolves.toEqual({ token: 'flag-value' });
+    expect(checkGit).toHaveBeenCalledTimes(1);
   });
 
-  it('accepts the minimum (2.22)', () => {
-    expect(() => ensureGitVersion('git version 2.22.0')).not.toThrow();
-  });
-
-  it('rejects below the minimum', () => {
-    expect(() => ensureGitVersion('git version 2.20.0')).toThrow(/git 2\.22\+/);
-    expect(() => ensureGitVersion('git version 1.9.0')).toThrow(/git 2\.22\+/);
-  });
-
-  it('rejects unparseable output', () => {
-    expect(() => ensureGitVersion('hello, world')).toThrow(/Unrecognised/);
+  it('surfaces git availability failures as preflight errors', async () => {
+    await expect(
+      preflight({
+        tokenFlag: 'flag-value',
+        env: {},
+        checkGit: async () => {
+          throw new PreflightError('git missing');
+        },
+      })
+    ).rejects.toThrow(/git missing/);
   });
 });
 
