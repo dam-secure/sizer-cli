@@ -96,7 +96,13 @@ async function buildOne(target: BunTarget): Promise<void> {
       `--target=${target}`,
       `--outfile=${outfile}`,
     ],
-    { cwd: PACKAGE_ROOT }
+    {
+      cwd: PACKAGE_ROOT,
+      // Bun 1.3.12 can emit macOS binaries with a corrupt LC_CODE_SIGNATURE,
+      // which are killed before startup and cannot be re-signed. Disable Bun's
+      // Mach-O signing and apply our own ad-hoc signature below.
+      env: { ...process.env, BUN_NO_CODESIGN_MACHO_BINARY: '1' },
+    }
   );
 
   await maybeAdHocSignDarwinBinary(target, outfile);

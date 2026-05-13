@@ -120,14 +120,37 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
+function isBunRuntime(): boolean {
+  return typeof (process.versions as NodeJS.ProcessVersions & { bun?: string }).bun === 'string';
+}
+
+function isImportMetaMain(): boolean {
+  return (import.meta as ImportMeta & { main?: boolean }).main === true;
+}
+
+function looksLikeNodeStyleArgv(argv: string[]): boolean {
+  const script = argv[1] ?? '';
+  return (
+    script.endsWith('cli.ts') ||
+    script.endsWith('cli.js') ||
+    script.endsWith('damsecure-sizer') ||
+    /damsecure-sizer-[\w-]+$/.test(script)
+  );
+}
+
+function argvForCommander(argv: string[]): string[] {
+  // Bun compiled executables can expose argv as [binary, ...userArgs] rather
+  // than Node's [runtime, script, ...userArgs]. Commander expects the latter.
+  if (isBunRuntime() && isImportMetaMain() && !looksLikeNodeStyleArgv(argv)) {
+    return [argv[0] ?? 'damsecure-sizer', 'damsecure-sizer', ...argv.slice(1)];
+  }
+  return argv;
+}
+
 // Only run when invoked directly (lets tests import the program lazily).
-const isDirect =
-  process.argv[1] &&
-  (process.argv[1].endsWith('cli.ts') ||
-    process.argv[1].endsWith('cli.js') ||
-    process.argv[1].endsWith('damsecure-sizer'));
+const isDirect = isImportMetaMain() || looksLikeNodeStyleArgv(process.argv);
 if (isDirect) {
-  void main(process.argv);
+  void main(argvForCommander(process.argv));
 }
 
 export { makeProgram, main };

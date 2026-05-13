@@ -329,6 +329,9 @@ async function sizeOneRepo(
     return reportDone(result, summary);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (isEmptyHeadError(message)) {
+      return reportDone(emptyRepoRow(row), '0 files (empty repo)');
+    }
     // Single-line variant for the progress sink so multi-line git fatals
     // don't blow out the terminal — the full message still lands in the
     // CSV's `error` column.
@@ -337,6 +340,42 @@ async function sizeOneRepo(
   } finally {
     await workspace.releaseRepo(repoDir);
   }
+}
+
+function isEmptyHeadError(message: string): boolean {
+  return (
+    /ambiguous argument 'HEAD'/.test(message) ||
+    /unknown revision or path in the working tree/.test(message) ||
+    /not a valid object name HEAD/.test(message)
+  );
+}
+
+function emptyRepoRow(row: RepoListRow): RepoSizedRow {
+  return {
+    full_name: row.full_name,
+    default_branch: row.default_branch,
+    size_kb: row.size_kb,
+    pushed_at: row.pushed_at,
+    note: row.note,
+    commit_sha: '',
+    total_files: 0,
+    excluded_global: 0,
+    excluded_repo: 0,
+    counted_files: 0,
+    truncated: false,
+    has_damsecure_ignore: false,
+    damsecure_ignore_lines: 0,
+    last_commit_at: '',
+    commits_last_4w: -1,
+    commits_last_13w: -1,
+    commits_last_52w: -1,
+    committers_last_4w: -1,
+    committers_last_13w: -1,
+    committers_last_52w: -1,
+    top_contributors: '',
+    activity_unavailable: true,
+    error: '',
+  };
 }
 
 /**

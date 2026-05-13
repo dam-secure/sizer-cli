@@ -38,11 +38,13 @@ import type { ScmEnumerator } from '../scm/types.js';
 
 describe('runSizeCommand — end-to-end against a local bare fixture', () => {
   let bareRepoPath: string;
+  let emptyBareRepoPath: string;
   let workTreePath: string;
 
   beforeAll(async () => {
     workTreePath = await mkdtemp(join(tmpdir(), 'sizer-e2e-work-'));
     bareRepoPath = await mkdtemp(join(tmpdir(), 'sizer-e2e-bare-'));
+    emptyBareRepoPath = await mkdtemp(join(tmpdir(), 'sizer-e2e-empty-bare-'));
 
     const git = simpleGit(workTreePath);
     await git.init();
@@ -60,12 +62,13 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
     await git.raw(['branch', '-M', 'main']);
 
     await simpleGit().clone(workTreePath, bareRepoPath, ['--bare']);
-
+    await simpleGit().raw(['init', '--bare', emptyBareRepoPath]);
   }, 60_000);
 
   afterAll(async () => {
     await rm(workTreePath, { recursive: true, force: true });
     await rm(bareRepoPath, { recursive: true, force: true });
+    await rm(emptyBareRepoPath, { recursive: true, force: true });
   });
 
   it('clones, analyses files + activity, and writes a sized CSV to --output', async () => {
@@ -138,4 +141,40 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
     expect(() => parseIgnoredRepos('acme/api,,acme/web')).toThrow(/empty entry/);
     expect(() => parseIgnoredRepos('not-a-full-name')).toThrow(/owner\/repo/);
   });
+
+  it('treats a cloned repo with no HEAD commit as empty, not errored', async () => {
+    const fakeEnumerator: ScmEnumerator = {
+      enumerate: async () => [
+        {
+          fullName: 'acme/empty',
+          cloneUrl: `file://${emptyBareRepoPath}`,
+          defaultBranch: 'main',
+          sizeKb: 0,
+          pushedAt: '',
+          isArchived: false,
+          isFork: false,
+          isEmpty: false,
+        },
+      ],
+    };
+    vi.mocked(createEnumerator).mockReturnValue(fakeEnumerator);
+
+    process.env.GHPAT = 'ghp_fake_for_test';
+    const outputPath = join(workTreePath, 'empty-sized.csv');
+    const result = await runSizeCommand({
+      scope: 'org=acme',
+      format: 'csv',
+      quiet: true,
+      output: outputPath,
+    });
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      full_name: 'acme/empty',
+      total_files: 0,
+      counted_files: 0,
+      error: '',
+    });
+    expect(result.output).not.toContain('ambiguous argument');
+  }, 60_000);
 });
