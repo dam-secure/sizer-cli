@@ -1,0 +1,100 @@
+# this file needs to be the format of a gitignore file
+
+# Image and asset files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.webp
+*.bmp
+*.tiff
+*.tif
+*.avif
+*.heic
+
+# fonts
+*.woff
+*.woff2
+*.otf
+*.ttf
+
+# Lock files (often very large)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+poetry.lock
+Pipfile.lock
+go.sum
+go.mod
+composer.lock
+Gemfile.lock
+Podfile.lock
+*.lock
+
+# Java compiled and binary files
+*.class
+*.jar
+*.war
+*.ear
+*.aar
+target/
+out/
+build/
+*.o
+*.so
+*.dylib
+*.dll
+
+# TypeScript/JavaScript build artifacts and bundles
+*.min.js
+*.bundle.js
+*.chunk.js
+dist/
+build/
+node_modules/
+.next/
+.nuxt/
+.cache/
+
+# Python compiled and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+.env/
+ENV/
+.eggs/
+*.egg-info/
+
+# Go compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+vendor/
+
+# Other binary and large files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+*.gz
+*.bz2
+*.xz
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx

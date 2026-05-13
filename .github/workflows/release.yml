@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Build binaries
+        run: npm run build:binary
+
+      - name: Smoke test Darwin binary
+        run: |
+          case "$(uname -m)" in
+            arm64) dist/binary/damsecure-sizer-darwin-arm64 --help ;;
+            x86_64) dist/binary/damsecure-sizer-darwin-x64 --help ;;
+            *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+      - name: Generate checksums
+        run: cd dist/binary && shasum -a 256 damsecure-sizer-* > damsecure-sizer-checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/binary/damsecure-sizer-linux-x64
+            dist/binary/damsecure-sizer-linux-arm64
+            dist/binary/damsecure-sizer-darwin-x64
+            dist/binary/damsecure-sizer-darwin-arm64
+            dist/binary/damsecure-sizer-checksums.txt
