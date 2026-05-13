@@ -1,7 +1,25 @@
 # Dam Secure Sizer
 
-Dockerized GitHub repository sizing for Dam Secure repo sizing. The tool emits a
-CSV fact sheet with file counts and recent commit activity. It does **not** send data to Dam Secure, you will need to do that yourself.
+Dam Secure Sizer is a customer-run Docker tool for producing the repository
+facts Dam Secure needs to prepare size your repos. You run it on your own machine
+against your own GitHub org, then decide whether to share the resulting CSV
+with Dam Secure.
+
+The tool does not run in Dam Secure infrastructure, does not phone home, and
+does not give Dam Secure access to your repositories. It only emits file-count
+and activity facts.
+
+## Safety Highlights
+
+- Nothing contacts Dam Secure servers. The container only talks to GitHub:
+  `api.github.com` to enumerate repos and `github.com` to fetch git metadata.
+- Repositories are not fully cloned or checked out. The sizer uses partial
+  clones with `--filter=blob:none --no-checkout`, so it fetches `.git` tree and
+  commit metadata, not source file contents.
+- Temporary git data lives inside the container and is deleted as each repo
+  finishes.
+- The output is a facts-only CSV/table: file counts, exclusions, activity, and
+  diagnostics. It contains no pricing logic.
 
 ## What You Need
 
@@ -17,21 +35,26 @@ export GHPAT=github_pat_...
 
 docker run --rm \
   -e GHPAT \
-  -v "$PWD:/out" \
   ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=acme \
-  --output /out/sized.csv
+  --scope org=<myorg>
 ```
 
-The command writes `sized.csv` into your current directory. Look at that file and send that CSV to your Dam Secure contact.
+This prints a table in your terminal. If you want a CSV file, see
+[Advanced Usage](#advanced-usage).
 
-Use a pinned release instead of `latest` when you need repeatability:
+## Advanced Usage
+
+Write the CSV artifact to a local file using stdout redirection:
 
 ```bash
-ghcr.io/dam-secure/sizer-cli:v0.1.0
+docker run --rm \
+  -e GHPAT \
+  ghcr.io/dam-secure/sizer-cli:latest \
+  --scope org=<myorg> \
+  --format csv > sized.csv
 ```
 
-## Common Commands
+Look at `sized.csv` and send it to your Dam Secure contact.
 
 Preview the repos that would be considered, without cloning anything:
 
@@ -39,7 +62,7 @@ Preview the repos that would be considered, without cloning anything:
 docker run --rm \
   -e GHPAT \
   ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=acme \
+  --scope org=<myorg> \
   --list-only > repos.csv
 ```
 
@@ -48,11 +71,10 @@ Run an interactive checkbox prompt before sizing:
 ```bash
 docker run --rm -it \
   -e GHPAT \
-  -v "$PWD:/out" \
   ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=acme \
+  --scope org=<myorg> \
   --interactive \
-  --output /out/sized.csv
+  --format csv > sized.csv
 ```
 
 Skip specific repositories before cloning:
@@ -60,20 +82,41 @@ Skip specific repositories before cloning:
 ```bash
 docker run --rm \
   -e GHPAT \
-  -v "$PWD:/out" \
   ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=acme \
-  --ignore-repos acme/legacy,acme/demo \
-  --output /out/sized.csv
+  --scope org=<myorg> \
+  --ignore-repos <myorg>/legacy,<myorg>/demo \
+  --format csv > sized.csv
 ```
 
-Print a terminal table instead of writing CSV:
+Write directly from the container to a mounted output directory:
 
 ```bash
 docker run --rm \
   -e GHPAT \
+  -v "$PWD:/out" \
   ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=acme
+  --scope org=<myorg> \
+  --output /out/sized.csv
+```
+
+## Run From Source
+
+Use this when you want to inspect or modify the code instead of using the
+published Docker image.
+
+```bash
+gh repo clone dam-secure/sizer-cli
+cd sizer-cli
+npm install
+export GHPAT=github_pat_...
+
+npm run dev -- --scope org=<myorg>
+```
+
+Write CSV from the local dev command:
+
+```bash
+npm run dev -- --scope org=<myorg> --format csv > sized.csv
 ```
 
 ## Authentication
@@ -85,7 +128,7 @@ Recommended:
 
 ```bash
 export GHPAT=github_pat_...
-docker run --rm -e GHPAT ghcr.io/dam-secure/sizer-cli:latest --scope org=acme --list-only
+docker run --rm -e GHPAT ghcr.io/dam-secure/sizer-cli:latest --scope org=<myorg>
 ```
 
 Avoid putting the token directly in the `docker run` command if your shell
@@ -133,6 +176,26 @@ top_contributors, activity_unavailable, error
 ```
 
 It never includes pricing fields such as `tier`, `credits`, `cost`, or `price`.
+
+Example terminal table:
+
+```text
+[sizer] done — 12 repos sized in 16.1s
+REPO                         FILES  EXCL_GLOBAL  EXCL_REPO  COUNTED  COMMITTERS_4W  COMMITTERS_13W  COMMITTERS_52W  PUSHED
+---------------------------  -----  -----------  ---------  -------  -------------  --------------  --------------  ----------
+acme/platform-api            1,427           59          0    1,368             11              14              16  2026-05-13
+acme/customer-portal           267           20          0      247              1               1               1  2026-04-23
+acme/worker-service            149            2          0      147              1               2               2  2026-05-13
+acme/mobile-app                 87            1          0       86              2               2               2  2026-05-08
+acme/docs-site                  32            0          0       32              2               2               2  2026-05-08
+acme/legacy-admin               30            1          0       29              0               0               3  2025-07-27
+acme/design-system              24            1          0       23              0               1               1  2026-02-25
+acme/example-go                 15            2          0       13              0               0               1  2025-11-19
+acme/example-python              6            0          0        6              0               0               1  2025-11-20
+acme/empty-repo                  0            0          0        0              —               —               —  2026-02-05
+---------------------------  -----  -----------  ---------  -------  -------------  --------------  --------------  ----------
+TOTAL                        2,037           86          0    1,951              —               —               —           —
+```
 
 ## How Sizing Works
 
@@ -221,9 +284,8 @@ docker build -t damsecure-sizer .
 docker run --rm damsecure-sizer --help
 ```
 
-## Out Of Scope
+## Not yet implemented
 
-- Pricing logic
 - AI-driven production exclusions
 - SLOC or per-language breakdowns
 - GitHub App authentication
