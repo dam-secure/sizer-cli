@@ -69,8 +69,8 @@ export interface ScmEnumerator {
  * Decision D-B (locked in the plan): `included=true` for active non-archived
  * non-fork non-empty repos; `false` for archived/fork/empty by default.
  *
- * The customer can flip the `included` column in Excel/Sheets before
- * `size --from`; this function only computes the default.
+ * `--list-only` exposes this default in the inspection CSV; the sizing path
+ * uses it directly before optional interactive deselection.
  */
 export function defaultIncluded(repo: RepoListing): boolean {
   if (repo.isArchived) return false;

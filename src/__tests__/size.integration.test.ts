@@ -7,9 +7,8 @@
  * sized CSV. This exercises Workspace cleanup, partial clone, file/activity
  * analysis, and CSV emission as a single chain.
  *
- * Note: we bypass the SCM enumerator entirely by using `--from <list-csv>`
- * and intercepting the enumerator factory. That keeps the test from needing
- * an HTTP mock for Octokit.
+ * Note: we intercept the enumerator factory so the test does not need an HTTP
+ * mock for Octokit.
  */
 
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vitest';
@@ -24,8 +23,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { runSizeCommand } from '../commands/size.js';
-import { writeListCsv, type RepoListRow } from '../reporting/csv.js';
+import { parseIgnoredRepos, runSizeCommand } from '../commands/size.js';
 
 vi.mock('../scm/factory.js', async (importActual) => {
   const actual: typeof import('../scm/factory.js') = await importActual();
@@ -41,7 +39,6 @@ import type { ScmEnumerator } from '../scm/types.js';
 describe('runSizeCommand — end-to-end against a local bare fixture', () => {
   let bareRepoPath: string;
   let workTreePath: string;
-  let listCsvPath: string;
 
   beforeAll(async () => {
     workTreePath = await mkdtemp(join(tmpdir(), 'sizer-e2e-work-'));
@@ -64,20 +61,6 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
 
     await simpleGit().clone(workTreePath, bareRepoPath, ['--bare']);
 
-    // Build a list CSV that points at this fake repo's `file://` clone URL.
-    listCsvPath = join(workTreePath, 'list.csv');
-    const row: RepoListRow = {
-      full_name: 'acme/api',
-      default_branch: 'main',
-      size_kb: 0,
-      pushed_at: '',
-      is_archived: false,
-      is_fork: false,
-      is_empty: false,
-      included: true,
-      note: '',
-    };
-    await writeFile(listCsvPath, writeListCsv([row]), 'utf8');
   }, 60_000);
 
   afterAll(async () => {
@@ -86,8 +69,7 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
   });
 
   it('clones, analyses files + activity, and writes a sized CSV to --output', async () => {
-    // Inject a fake enumerator that returns the bare-repo file:// URL for
-    // every full_name the size command asks about.
+    // Inject a fake enumerator that returns the bare-repo file:// URL.
     const fakeEnumerator: ScmEnumerator = {
       enumerate: async () => [
         {
@@ -100,16 +82,27 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
           isFork: false,
           isEmpty: false,
         },
+        {
+          fullName: 'acme/ignored',
+          cloneUrl: 'file:///does/not/exist',
+          defaultBranch: 'main',
+          sizeKb: 0,
+          pushedAt: '',
+          isArchived: false,
+          isFork: false,
+          isEmpty: false,
+        },
       ],
     };
     vi.mocked(createEnumerator).mockReturnValue(fakeEnumerator);
 
     const outputPath = join(workTreePath, 'sized.csv');
-    process.env.DAMSECURE_SIZER_GITHUB_TOKEN = 'ghp_fake_for_test';
+    process.env.GHPAT = 'ghp_fake_for_test';
     const result = await runSizeCommand({
-      from: listCsvPath,
+      scope: 'org=acme',
       output: outputPath,
       format: 'csv',
+      ignoreRepos: 'acme/ignored',
     });
 
     expect(result.rows).toHaveLength(1);
@@ -131,9 +124,18 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
     // Sized CSV was written to --output.
     const csvContent = await readFile(outputPath, 'utf8');
     expect(csvContent).toContain('acme/api');
+    expect(csvContent).not.toContain('acme/ignored');
     expect(csvContent).toContain('counted_files');
     // No tier / credits columns:
     expect(csvContent).not.toMatch(/\btier\b/i);
     expect(csvContent).not.toMatch(/\bcredits?\b/i);
   }, 60_000);
+
+  it('validates ignored repo names', () => {
+    expect(parseIgnoredRepos('acme/api, ACME/Web')).toEqual(
+      new Set(['acme/api', 'acme/web'])
+    );
+    expect(() => parseIgnoredRepos('acme/api,,acme/web')).toThrow(/empty entry/);
+    expect(() => parseIgnoredRepos('not-a-full-name')).toThrow(/owner\/repo/);
+  });
 });

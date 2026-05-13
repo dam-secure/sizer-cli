@@ -2,39 +2,28 @@
  * `size` command pipeline.
  *
  *   parse args                           →  preflight (token, git, redactor)
- *   if --from <csv>: readListCsv(...)    →  in-memory list rows
- *   else:           runListCommand(...)  →  in-memory list rows
- *   filter by included= (after edit)     →  pLimit(5) per repo:
+ *                                         →  enumerate repos via SCM
+ *   apply default included + ignored repos + optional interactive deselect
+ *                                         →  pLimit(5) per repo:
  *                                              partialClone
  *                                              analyseFiles
  *                                              analyseActivity (skipped if --no-activity)
  *                                              releaseRepo (always)
- *   render to --format (csv | json | table)
+ *   render to --format (csv | table)
  *
  * Concurrency default = 5 (decision D5). Per-repo `try/finally` cleanup. The
  * workspace is destroyed on success, on error, and on SIGINT/SIGTERM.
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import pLimit from 'p-limit';
 import { simpleGit } from 'simple-git';
 import { preflight } from '../preflight.js';
 import { createEnumerator, parseScope } from '../scm/factory.js';
-import {
-  defaultIncluded,
-  type RepoListing,
-  type ScmEnumerator,
-  type ScmScope,
-} from '../scm/types.js';
+import type { RepoListing } from '../scm/types.js';
 import { listingToRow } from './list.js';
-import {
-  readListCsv,
-  writeSizedCsv,
-  type RepoListRow,
-  type RepoSizedRow,
-} from '../reporting/csv.js';
+import { writeSizedCsv, type RepoListRow, type RepoSizedRow } from '../reporting/csv.js';
 import { renderSizedTable } from '../reporting/table.js';
-import { renderSizedJson } from '../reporting/json.js';
 import { partialClone } from '../clone/partialClone.js';
 import {
   createWorkspace,
@@ -51,22 +40,25 @@ import {
   createStderrReporter,
   type ProgressReporter,
 } from '../progress.js';
+import { interactiveDeselect } from '../filtering/interactive.js';
 
 const DEFAULT_CONCURRENCY = 5;
-const VERSION = '0.1.0';
+const FULL_NAME_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
-export type SizeOutputFormat = 'csv' | 'json' | 'table';
+export type SizeOutputFormat = 'csv' | 'table';
 
 export interface SizeCommandOptions {
-  /** Source: list CSV or auto-enumerate. EXACTLY ONE of these is required. */
-  from?: string;
-  scope?: string;
+  /** Scope to enumerate before sizing. */
+  scope: string;
 
   token?: string;
   output?: string;
   format?: SizeOutputFormat;
   concurrency?: number;
   noActivity?: boolean;
+  interactive?: boolean;
+  /** Comma-separated exact full names to skip before cloning, e.g. "acme/a,acme/b". */
+  ignoreRepos?: string;
 
   /** Forwarded to enumerator when --scope is used. */
   includeArchived?: boolean;
@@ -81,25 +73,6 @@ export interface SizeCommandOptions {
   /** Test override — replaces the live timer for activity windows. */
   now?: Date;
 
-  /**
-   * Pre-computed list rows to size, instead of enumerating via --scope/--from.
-   *
-   * When set, the enumeration step is skipped entirely and these rows are
-   * used directly (after the standard `included=true` filter). Required to
-   * be paired with {@link listingsOverride} so per-repo clone URLs are
-   * resolvable without a fresh round-trip to the SCM.
-   *
-   * Used by `runAllCommand` to hand its already-enumerated rows (post
-   * interactive deselect, if any) into the size pipeline, avoiding the
-   * double-enumeration + double-render bug. Mutually exclusive with
-   * `from` and `scope`.
-   */
-  listRowsOverride?: RepoListRow[];
-  /**
-   * Pre-computed clone listings for the rows in {@link listRowsOverride},
-   * keyed by `fullName`. Required when `listRowsOverride` is set.
-   */
-  listingsOverride?: Map<string, RepoListing>;
 }
 
 export interface SizeCommandResult {
@@ -111,69 +84,35 @@ export interface SizeCommandResult {
 export async function runSizeCommand(
   options: SizeCommandOptions
 ): Promise<SizeCommandResult> {
-  // The override path is used by `runAllCommand` to hand a pre-enumerated
-  // (and possibly interactively-deselected) row set straight into sizing
-  // without touching the SCM again. Validate up-front so misuse fails loud
-  // before we burn a preflight or a network call.
-  const hasRowsOverride = options.listRowsOverride !== undefined;
-  const hasListingsOverride = options.listingsOverride !== undefined;
-  if (hasRowsOverride !== hasListingsOverride) {
-    throw new Error(
-      'size: listRowsOverride and listingsOverride must be supplied together.'
-    );
-  }
-  if (hasRowsOverride && (options.from || options.scope)) {
-    throw new Error(
-      'size: listRowsOverride is mutually exclusive with --from and --scope.'
-    );
-  }
-  if (!hasRowsOverride && !options.from && !options.scope) {
-    throw new Error('size: provide either --from <csv> or --scope <spec>.');
-  }
-  if (options.from && options.scope) {
-    throw new Error('size: --from and --scope are mutually exclusive.');
+  if (!options.scope) {
+    throw new Error('size: provide --scope <spec>.');
   }
 
+  const ignoredRepos = parseIgnoredRepos(options.ignoreRepos);
   const { token } = await preflight({ tokenFlag: options.token });
 
-  // 1. Resolve list rows.
-  let listRows: RepoListRow[];
-  let listingsByName: Map<string, RepoListing> = new Map();
-  if (hasRowsOverride) {
-    // Pre-enumerated path: caller already did the SCM round-trip and (in
-    // the `all --interactive` case) applied the user's deselections. Use
-    // the supplied rows verbatim — re-enumerating here would clobber the
-    // `included=` edits and double the work.
-    listRows = options.listRowsOverride!;
-    listingsByName = options.listingsOverride!;
-  } else if (options.from) {
-    const csv = await readFile(options.from, 'utf8');
-    listRows = readListCsv(csv);
-    // We don't have RepoListing for --from; we'll need to enumerate to get
-    // cloneUrl. That defeats "cheap" — but it's required because the CSV
-    // doesn't (and shouldn't) carry an authenticated clone URL.
-    const scopeFromRows = inferScopeFromListRows(listRows);
-    listingsByName = await freshEnumerationByName(
-      scopeFromRows,
-      token,
-      options.includeArchived ?? true,
-      options.includeForks ?? true
-    );
-  } else {
-    const scope = parseScope(options.scope!);
-    const enumerator = createEnumerator(scope, token);
-    const repos = await enumerator.enumerate(scope, {
-      includeArchived: options.includeArchived ?? true,
-      includeForks: options.includeForks ?? true,
+  // 1. Enumerate and resolve list rows.
+  const scope = parseScope(options.scope);
+  const enumerator = createEnumerator(scope, token);
+  const repos = await enumerator.enumerate(scope, {
+    includeArchived: options.includeArchived ?? true,
+    includeForks: options.includeForks ?? true,
+  });
+  const listingsByName = new Map(repos.map((r) => [r.fullName, r]));
+  const enumeratedNames = new Set(repos.map((r) => normaliseRepoName(r.fullName)));
+
+  warnForUnknownIgnoredRepos(ignoredRepos, enumeratedNames, options.quiet ?? false);
+
+  let listRows = repos
+    .map(listingToRow)
+    .filter((r) => {
+      if (!options.includeArchived && r.is_archived) return false;
+      if (!options.includeForks && r.is_fork) return false;
+      return !ignoredRepos.has(normaliseRepoName(r.full_name));
     });
-    listingsByName = new Map(repos.map((r) => [r.fullName, r]));
-    listRows = repos
-      .map(listingToRow)
-      .filter((r) => {
-        if (!options.includeArchived && r.is_archived) return false;
-        if (!options.includeForks && r.is_fork) return false;
-        return true;
-      });
+
+  if (options.interactive) {
+    listRows = await interactiveDeselect(listRows);
   }
 
   const included = listRows.filter((r) => r.included);
@@ -248,12 +187,6 @@ async function finalise(
     case 'csv':
       output = writeSizedCsv(rows);
       break;
-    case 'json':
-      output = renderSizedJson(rows, {
-        generatorVersion: VERSION,
-        now: options.now,
-      });
-      break;
     case 'table':
       output = renderSizedTable(rows);
       break;
@@ -270,8 +203,46 @@ async function finalise(
 
 function defaultFormatFor(outputPath: string | undefined): SizeOutputFormat {
   if (!outputPath) return 'table';
-  if (outputPath.endsWith('.json')) return 'json';
   return 'csv';
+}
+
+export function parseIgnoredRepos(raw: string | undefined): Set<string> {
+  if (!raw || raw.trim() === '') return new Set();
+
+  const parts = raw.split(',');
+  const repos = new Set<string>();
+  for (const part of parts) {
+    const repo = part.trim();
+    if (!repo) {
+      throw new Error(
+        '--ignore-repos contains an empty entry. Use comma-separated owner/repo names, e.g. "acme/api,acme/web".'
+      );
+    }
+    if (!FULL_NAME_RE.test(repo)) {
+      throw new Error(
+        `--ignore-repos entries must be full repository names like "owner/repo" (got "${repo}").`
+      );
+    }
+    repos.add(normaliseRepoName(repo));
+  }
+  return repos;
+}
+
+function normaliseRepoName(name: string): string {
+  return name.toLowerCase();
+}
+
+function warnForUnknownIgnoredRepos(
+  ignoredRepos: Set<string>,
+  enumeratedNames: Set<string>,
+  quiet: boolean
+): void {
+  if (quiet || ignoredRepos.size === 0) return;
+  const unknown = [...ignoredRepos].filter((repo) => !enumeratedNames.has(repo));
+  if (unknown.length === 0) return;
+  process.stderr.write(
+    `[sizer] warning: ignored repo${unknown.length === 1 ? '' : 's'} not found in enumeration: ${unknown.join(', ')}\n`
+  );
 }
 
 async function sizeOneRepo(
@@ -410,62 +381,6 @@ function errorRow(row: RepoListRow, message: string): RepoSizedRow {
     error: message,
   };
 }
-
-/**
- * When `size --from <csv>` is used, the CSV doesn't carry clone URLs, so we
- * must re-enumerate. We assume all rows belong to the same GitHub
- * org/user (true today; v2 might widen this).
- *
- * Heuristic: take the first row's `full_name` owner as the org name. If the
- * CSV mixes orgs, the customer is on their own — they can split the file.
- */
-function inferScopeFromListRows(rows: readonly RepoListRow[]): ScmScope {
-  if (rows.length === 0) {
-    throw new Error('Cannot infer scope from an empty list CSV.');
-  }
-  const owners = new Set(rows.map((r) => r.full_name.split('/')[0]));
-  if (owners.size > 1) {
-    throw new Error(
-      `--from CSV mixes multiple owners (${[...owners].join(', ')}). Run with one --from per owner, or split the CSV.`
-    );
-  }
-  const owner = [...owners][0];
-  return { provider: 'github', type: 'org', name: owner };
-}
-
-async function freshEnumerationByName(
-  scope: ScmScope,
-  token: string,
-  includeArchived: boolean,
-  includeForks: boolean
-): Promise<Map<string, RepoListing>> {
-  const enumerator: ScmEnumerator = createEnumerator(scope, token);
-  try {
-    const repos = await enumerator.enumerate(scope, {
-      includeArchived,
-      includeForks,
-    });
-    return new Map(repos.map((r) => [r.fullName, r]));
-  } catch (err) {
-    // If the scope happens to be a user — fall back: try `user` enumerator.
-    if (scope.provider === 'github' && scope.type === 'org') {
-      const userScope: ScmScope = { provider: 'github', type: 'user' };
-      const userEnumerator = createEnumerator(userScope, token);
-      const repos = await userEnumerator.enumerate(userScope, {
-        includeArchived,
-        includeForks,
-      });
-      return new Map(repos.map((r) => [r.fullName, r]));
-    }
-    throw err;
-  }
-}
-
-/**
- * Re-export so `runAllCommand` can call this without re-implementing
- * defaulting logic.
- */
-export { defaultIncluded };
 
 /**
  * Convenience for cli.ts: write the rendered output to disk if `--output`

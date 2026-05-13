@@ -38,44 +38,46 @@ SHA256 checksums are attached to each release as
 
 ## Workflow
 
-### Two-step (recommended)
+### Size an org
 
 ```bash
-# 1. Pull the list of repositories in your org. CHEAP — no clones, no code
-#    fetched. The output CSV has an `included` column you can edit.
-./damsecure-sizer list \
+export GHPAT=<pat>
+
+./damsecure-sizer \
     --scope org=acme \
-    --token $GITHUB_TOKEN \
-    --output repos.csv
-
-# 2. Open repos.csv in Excel / Sheets. Flip the `included` column to FALSE
-#    for any repo you don't want measured. Save.
-
-# 3. Size only the included repos. Each one is partial-cloned to a temp dir,
-#    measured, and deleted. Local disk peak ≈ concurrency × ~10 MB.
-./damsecure-sizer size \
-    --from repos.csv \
-    --token $GITHUB_TOKEN \
     --output sized.csv
 
-# 4. Email sized.csv to your Dam Secure contact.
+# Email sized.csv to your Dam Secure contact.
 ```
 
-### One-shot (faster, less auditable)
+Each included repo is partial-cloned to a temp dir, measured, and deleted.
+Local disk peak is roughly `concurrency × ~10 MB`.
+
+### Inspect or narrow the repo set
 
 ```bash
-./damsecure-sizer all --scope org=acme --token $GITHUB_TOKEN --output sized.csv
+# Cheap inspection: no clones, no code fetched.
+./damsecure-sizer --scope org=acme --list-only > repos.csv
+
+# Deselect repos interactively before sizing.
+./damsecure-sizer --scope org=acme --interactive --output sized.csv
+
+# Skip known repos before cloning.
+./damsecure-sizer \
+    --scope org=acme \
+    --ignore-repos acme/legacy,acme/demo \
+    --output sized.csv
 ```
 
-Add `--interactive` to get a checkbox prompt to deselect repos between the
-list step and the size step.
+`--ignore-repos` accepts comma-separated exact `owner/repo` names. It does
+not support glob patterns.
 
 ---
 
 ## Authentication
 
 The tool reads a GitHub personal access token (PAT) from `--token` or the
-environment variable `DAMSECURE_SIZER_GITHUB_TOKEN`.
+environment variable `GHPAT`.
 
 > **Why a PAT and not a GitHub App?** A buyer running this tool has not
 > installed Dam Secure yet, by design — the whole point is to get a quote
@@ -95,7 +97,7 @@ environment variable `DAMSECURE_SIZER_GITHUB_TOKEN`.
 5. **Permissions ▸ Repository ▸ Metadata**: Read-only (auto-included) — required.
 6. Do not grant any other permission. The tool only ever lists repos and
    reads tree+commit metadata; everything else is unnecessary attack surface.
-7. Generate, copy, then `export DAMSECURE_SIZER_GITHUB_TOKEN=<pat>`
+7. Generate, copy, then `export GHPAT=<pat>`
    (recommended) or pass via `--token <pat>` on the command line.
 
 ### Classic PAT (fallback)
@@ -131,23 +133,21 @@ rest of the monorepo's annual security review. Last review: **2026-05-13**
 
 ## Output formats
 
-`size` writes CSV by default (when `--output` is set) and a pretty terminal
+The sizer writes CSV by default when `--output` is set and a pretty terminal
 table to stdout otherwise. Override with `--format`:
 
 | Format | Default when                 | Use case                                               |
 |--------|------------------------------|--------------------------------------------------------|
 | `csv`  | `--output FILE`              | The deliverable you send to Dam Secure                 |
-| `json` | `--output FILE.json`         | Audit / debug / chart in Sheets pivot tools            |
 | `table`| no `--output`                | Eyeball the result before sharing                      |
 
-The CSV is the canonical share-with-sales artifact; JSON adds a schema
-version + generation timestamp for traceability.
+The CSV is the canonical share-with-sales artifact.
 
 ---
 
 ## What's in the sized CSV
 
-Identity columns (copied from the list CSV) + sizing + activity:
+Identity columns + sizing + activity:
 
 ```
 full_name, default_branch, size_kb, pushed_at, note,
@@ -250,12 +250,11 @@ Security-conscious customers can:
 
 ## Reference
 
-### Subcommands
+### Commands
 
 ```
-damsecure-sizer list  --scope <spec> [--token <pat>] [--output <path>] [--include-archived] [--include-forks]
-damsecure-sizer size  (--from <csv> | --scope <spec>) [--token <pat>] [--output <path>] [--format csv|json|table] [--no-activity] [--concurrency <n>]
-damsecure-sizer all   --scope <spec> [--token <pat>] [--output <path>] [--format csv|json|table] [--interactive] [--no-activity] [--concurrency <n>]
+damsecure-sizer --scope <spec> [--token <pat>] [--output <path>] [--format csv|table] [--interactive] [--ignore-repos owner/repo,...] [--no-activity] [--concurrency <n>]
+damsecure-sizer --scope <spec> --list-only [--token <pat>] [--include-archived] [--include-forks]
 ```
 
 ### Scope syntax
@@ -274,11 +273,12 @@ azure:org=foo             (planned for v2)
 
 | Flag                    | Default | Notes                                                  |
 |-------------------------|---------|--------------------------------------------------------|
-| `--concurrency`         | 5       | Per-repo parallelism in `size`                         |
+| `--concurrency`         | 5       | Per-repo parallelism in sizing                         |
 | `--no-activity`         | off     | Activity columns are on by default                     |
 | `--include-archived`    | on      | Archived repos appear with `included=false`            |
 | `--include-forks`       | on      | Fork repos appear with `included=false`                |
-| `--interactive` (`all`) | off     | Add a checkbox prompt between list and size            |
+| `--interactive`         | off     | Add a checkbox prompt before sizing                    |
+| `--list-only`           | off     | Print the inspection CSV to stdout and skip cloning    |
 | `--debug` (top-level)   | off     | Print stack traces and underlying caught errors to stderr. We deliberately suppress these by default so the CLI doesn't leak internal paths or dependency-internal details. Add the flag when filing an issue. |
 
 ### Runtime

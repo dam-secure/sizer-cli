@@ -1,62 +1,53 @@
 /**
  * CLI surface smoke tests — assert commander wiring, not behaviour.
  *
- * Behaviour is covered by the per-command tests; what we want to pin here is
- * that `--help` works, that the three subcommands exist, and that flag names
- * stay stable.
+ * Behaviour is covered by the command tests; what we want to pin here is that
+ * `--help` works and the root-command flag names stay stable.
  */
 
 import { describe, expect, it } from 'vitest';
 import { makeProgram } from '../cli.js';
 
 describe('makeProgram (commander wiring)', () => {
-  it('declares list / size / all subcommands', () => {
+  it('declares no subcommands', () => {
     const program = makeProgram();
     const names = program.commands.map((c) => c.name()).sort();
-    expect(names).toEqual(['all', 'list', 'size']);
+    expect(names).toEqual([]);
   });
 
-  it('list requires --scope', () => {
+  it('root command requires --scope', () => {
     const program = makeProgram();
-    const list = program.commands.find((c) => c.name() === 'list')!;
-    const opts = list.options;
+    const opts = program.options;
     const scopeOpt = opts.find((o) => o.long === '--scope')!;
     expect(scopeOpt).toBeDefined();
     expect(scopeOpt.required).toBe(true);
   });
 
-  it('size has --from and --scope as optional, --no-activity wired up', () => {
+  it('root command wires sizing and inspection options', () => {
     const program = makeProgram();
-    const size = program.commands.find((c) => c.name() === 'size')!;
-    const longs = size.options.map((o) => o.long);
-    expect(longs).toContain('--from');
+    const longs = program.options.map((o) => o.long);
     expect(longs).toContain('--scope');
+    expect(longs).toContain('--list-only');
     expect(longs).toContain('--no-activity');
     expect(longs).toContain('--format');
     expect(longs).toContain('--concurrency');
-  });
-
-  it('all has --interactive', () => {
-    const program = makeProgram();
-    const all = program.commands.find((c) => c.name() === 'all')!;
-    const longs = all.options.map((o) => o.long);
     expect(longs).toContain('--interactive');
-    expect(longs).toContain('--scope');
+    expect(longs).toContain('--ignore-repos');
+    expect(longs).not.toContain('--from');
   });
 
   it('renders help text for the root command', () => {
     const program = makeProgram();
     const help = program.helpInformation();
     expect(help).toContain('damsecure-sizer');
-    expect(help).toContain('list');
-    expect(help).toContain('size');
-    expect(help).toContain('all');
+    expect(help).toContain('--list-only');
+    expect(help).toContain('--ignore-repos');
+    expect(help).not.toContain('Commands:');
   });
 
-  it('--format choices are csv | json | table on size', () => {
+  it('--format choices are csv | table on the root command', () => {
     const program = makeProgram();
-    const size = program.commands.find((c) => c.name() === 'size')!;
-    const fmt = size.options.find((o) => o.long === '--format')!;
-    expect(fmt.argChoices?.sort()).toEqual(['csv', 'json', 'table']);
+    const fmt = program.options.find((o) => o.long === '--format')!;
+    expect(fmt.argChoices?.sort()).toEqual(['csv', 'table']);
   });
 });

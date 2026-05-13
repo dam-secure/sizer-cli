@@ -16,7 +16,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-export const ENV_TOKEN = 'DAMSECURE_SIZER_GITHUB_TOKEN';
+export const ENV_TOKEN = 'GHPAT';
 const MIN_GIT = { major: 2, minor: 22 };
 
 export class PreflightError extends Error {

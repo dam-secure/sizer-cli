@@ -1,19 +1,14 @@
 /**
- * CSV schemas + I/O for `list` and `size`.
+ * CSV schemas + writers for list inspection and sizing output.
  *
  * Two distinct shapes:
- *  - `RepoListRow`  — output of `list`, edited by the customer in
- *    Excel/Sheets, consumed by `size --from`. Customer-editable columns
- *    are `included` (bool) and `note` (free-form).
+ *  - `RepoListRow`  — output of `--list-only`; useful for inspection.
+ *    Customer-facing columns are `included` (default sizing decision) and
+ *    `note` (free-form).
  *  - `RepoSizedRow` — output of `size`. Identity columns + sizing +
  *    activity. NEVER contains tier / credits / pricing columns; that's
  *    a deliberate v1 boundary.
  *
- * Validation rules for `readListCsv` (locked in plan):
- *   - all required columns must be present
- *   - `included` accepts Excel-friendly literals: true/false/1/0/yes/no
- *   - `full_name` must match `owner/repo`
- *   - malformed rows are reported by name, not by index
  */
 
 import Papa from 'papaparse';
@@ -49,15 +44,6 @@ const LIST_COLUMNS: ReadonlyArray<keyof RepoListRow> = Object.freeze([
   'note',
 ]);
 
-const FULL_NAME_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
-
-export class ListCsvParseError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ListCsvParseError';
-  }
-}
-
 export function writeListCsv(rows: readonly RepoListRow[]): string {
   return Papa.unparse(
     {
@@ -76,102 +62,6 @@ export function writeListCsv(rows: readonly RepoListRow[]): string {
     },
     { newline: '\n' }
   );
-}
-
-export function readListCsv(content: string): RepoListRow[] {
-  const parsed = Papa.parse<Record<string, string>>(content, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (h) => h.trim(),
-  });
-
-  if (parsed.errors.length > 0) {
-    const first = parsed.errors[0];
-    throw new ListCsvParseError(
-      `CSV parse error at row ${first.row ?? '?'}: ${first.message}`
-    );
-  }
-
-  const headers = (parsed.meta.fields ?? []).map((f) => f.trim());
-  const missing = LIST_COLUMNS.filter((c) => !headers.includes(c));
-  if (missing.length > 0) {
-    throw new ListCsvParseError(
-      `List CSV is missing required column(s): ${missing.join(', ')}. Expected: ${LIST_COLUMNS.join(', ')}.`
-    );
-  }
-
-  const rows: RepoListRow[] = [];
-  for (const raw of parsed.data) {
-    const fullName = (raw['full_name'] ?? '').trim();
-    if (!fullName) {
-      // Tolerate fully-blank rows that Excel sometimes leaves at the bottom.
-      continue;
-    }
-    if (!FULL_NAME_RE.test(fullName)) {
-      throw new ListCsvParseError(
-        `Row "${fullName}": full_name must match "owner/repo" (got "${fullName}").`
-      );
-    }
-
-    rows.push({
-      full_name: fullName,
-      default_branch: (raw['default_branch'] ?? '').trim(),
-      size_kb: parseIntegerColumn(raw['size_kb'], 'size_kb', fullName),
-      pushed_at: (raw['pushed_at'] ?? '').trim(),
-      is_archived: parseBoolColumn(raw['is_archived'], 'is_archived', fullName),
-      is_fork: parseBoolColumn(raw['is_fork'], 'is_fork', fullName),
-      is_empty: parseBoolColumn(raw['is_empty'], 'is_empty', fullName),
-      included: parseBoolColumn(raw['included'], 'included', fullName),
-      note: raw['note'] ?? '',
-    });
-  }
-  return rows;
-}
-
-function parseBoolColumn(
-  raw: string | undefined,
-  column: string,
-  rowName: string
-): boolean {
-  const normalised = (raw ?? '').trim().toLowerCase();
-  if (
-    normalised === 'true' ||
-    normalised === '1' ||
-    normalised === 'yes' ||
-    normalised === 'y' ||
-    normalised === 't'
-  ) {
-    return true;
-  }
-  if (
-    normalised === 'false' ||
-    normalised === '0' ||
-    normalised === 'no' ||
-    normalised === 'n' ||
-    normalised === 'f' ||
-    normalised === ''
-  ) {
-    return false;
-  }
-  throw new ListCsvParseError(
-    `Row "${rowName}", column "${column}": expected a true/false value (accepts true/false/1/0/yes/no), got "${raw}".`
-  );
-}
-
-function parseIntegerColumn(
-  raw: string | undefined,
-  column: string,
-  rowName: string
-): number {
-  const trimmed = (raw ?? '').trim();
-  if (trimmed === '') return 0;
-  const n = Number(trimmed);
-  if (!Number.isFinite(n) || !Number.isInteger(n)) {
-    throw new ListCsvParseError(
-      `Row "${rowName}", column "${column}": expected an integer, got "${raw}".`
-    );
-  }
-  return n;
 }
 
 // ---------------------------------------------------------------------------

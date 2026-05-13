@@ -18,9 +18,10 @@ process.on('warning', (warning) => {
 });
 
 /**
- * @damsecure/sizer entry point — registers the `list`, `size`, and `all`
- * subcommands. Each subcommand calls `preflight` to install the log
- * redactor and resolve the token before doing anything else.
+ * @damsecure/sizer entry point. The root command sizes repos by default;
+ * pass `--list-only` to enumerate and print the list CSV without cloning.
+ * Command handlers call `preflight` to install the log redactor and resolve
+ * the token before doing anything else.
  *
  * Friendly errors: any thrown `Error` reaches the caller via commander; we
  * wrap the top level in a small `try/catch` to print a concise message and
@@ -30,7 +31,6 @@ process.on('warning', (warning) => {
 import { Command, Option } from 'commander';
 import { runListCommand } from './commands/list.js';
 import { runSizeCommand } from './commands/size.js';
-import { runAllCommand } from './commands/all.js';
 import { enableDebugLog } from './debugLog.js';
 
 const VERSION = '0.1.0';
@@ -43,6 +43,26 @@ function makeProgram(): Command {
       'Produce a sizing + activity fact sheet for your repositories that Dam Secure can quote against — without giving us access to your code. No pricing logic; the output CSV is the deliverable.'
     )
     .version(VERSION)
+    .requiredOption(
+      '-s, --scope <spec>',
+      '"org=acme" or "user" (or "github:org=acme" explicitly)'
+    )
+    .option('-t, --token <pat>', 'GitHub PAT (or env GHPAT)')
+    .option('--list-only', 'enumerate repos and write the list CSV to stdout without cloning', false)
+    .option('-o, --output <path>', 'write sizing output to this file (default: stdout)')
+    .addOption(
+      new Option('--format <fmt>', 'csv | table')
+        .choices(['csv', 'table'])
+    )
+    .option('-i, --interactive', 'show a checkbox prompt to deselect repos before sizing', false)
+    .option('--ignore-repos <repos>', 'comma-separated owner/repo names to skip before sizing')
+    .option('--no-activity', 'skip git log calls (sizing only)')
+    .option('-c, --concurrency <n>', 'parallel repos (default 5)', (v) => parseInt(v, 10))
+    .option('-q, --quiet', 'suppress per-repo progress lines on stderr', false)
+    .option('--include-archived', 'enumerate archived repos as included=false (default true)', true)
+    .option('--no-include-archived', 'drop archived repos from enumeration')
+    .option('--include-forks', 'enumerate fork repos as included=false (default true)', true)
+    .option('--no-include-forks', 'drop fork repos from enumeration')
     // Top-level --debug: enables stderr emission of caught-and-suppressed
     // errors via debugLog(), AND prints the stack of any thrown error in
     // the top-level catch below. Off by default — Rule 3 requires we never
@@ -51,87 +71,19 @@ function makeProgram(): Command {
     .hook('preAction', (thisCommand) => {
       const opts = thisCommand.opts() as { debug?: boolean };
       if (opts.debug) enableDebugLog();
-    });
-
-  // ----- list -----
-  program
-    .command('list')
-    .description('Enumerate a GitHub org/user\'s repos and write an editable list CSV.')
-    .requiredOption(
-      '-s, --scope <spec>',
-      '"org=acme" or "user" (or "github:org=acme" explicitly)'
-    )
-    .option('-t, --token <pat>', 'GitHub PAT (or env DAMSECURE_SIZER_GITHUB_TOKEN)')
-    .option('-o, --output <path>', 'write CSV to this file (default: stdout)')
-    .option('--include-archived', 'enumerate archived repos as included=false (default true)', true)
-    .option('--no-include-archived', 'drop archived repos from the list entirely')
-    .option('--include-forks', 'enumerate fork repos as included=false (default true)', true)
-    .option('--no-include-forks', 'drop fork repos from the list entirely')
+    })
     .action(async (opts) => {
-      await runListCommand({
-        scope: opts.scope,
-        token: opts.token,
-        output: opts.output,
-        includeArchived: opts.includeArchived,
-        includeForks: opts.includeForks,
-      });
-    });
+      if (opts.listOnly) {
+        await runListCommand({
+          scope: opts.scope,
+          token: opts.token,
+          includeArchived: opts.includeArchived,
+          includeForks: opts.includeForks,
+        });
+        return;
+      }
 
-  // ----- size -----
-  program
-    .command('size')
-    .description('Read a list CSV (or auto-enumerate), partial-clone each included repo, and write a sized CSV.')
-    .option('-f, --from <path>', 'list CSV produced by `list` (or hand-edited)')
-    .option('-s, --scope <spec>', 'auto-enumerate this scope instead of reading --from')
-    .option('-t, --token <pat>', 'GitHub PAT (or env DAMSECURE_SIZER_GITHUB_TOKEN)')
-    .option('-o, --output <path>', 'write to this file (default: stdout)')
-    .addOption(
-      new Option('--format <fmt>', 'csv | json | table')
-        .choices(['csv', 'json', 'table'])
-    )
-    .option('--no-activity', 'skip git log calls (sizing only)')
-    .option('-c, --concurrency <n>', 'parallel repos (default 5)', (v) => parseInt(v, 10))
-    .option('-q, --quiet', 'suppress per-repo progress lines on stderr', false)
-    .option('--include-archived', 'enumerate archived repos when --scope is used', true)
-    .option('--no-include-archived', 'drop archived repos when --scope is used')
-    .option('--include-forks', 'enumerate fork repos when --scope is used', true)
-    .option('--no-include-forks', 'drop fork repos when --scope is used')
-    .action(async (opts) => {
       await runSizeCommand({
-        from: opts.from,
-        scope: opts.scope,
-        token: opts.token,
-        output: opts.output,
-        format: opts.format,
-        concurrency: opts.concurrency,
-        noActivity: opts.activity === false,
-        quiet: opts.quiet,
-        includeArchived: opts.includeArchived,
-        includeForks: opts.includeForks,
-      });
-    });
-
-  // ----- all -----
-  program
-    .command('all')
-    .description('Convenience: list + size in one shot. Add --interactive to deselect repos between the two steps.')
-    .requiredOption('-s, --scope <spec>', '"org=acme" or "user"')
-    .option('-t, --token <pat>', 'GitHub PAT (or env DAMSECURE_SIZER_GITHUB_TOKEN)')
-    .option('-o, --output <path>', 'write to this file (default: stdout)')
-    .addOption(
-      new Option('--format <fmt>', 'csv | json | table')
-        .choices(['csv', 'json', 'table'])
-    )
-    .option('-i, --interactive', 'show a checkbox prompt to deselect repos before sizing', false)
-    .option('--no-activity', 'skip git log calls (sizing only)')
-    .option('-c, --concurrency <n>', 'parallel repos (default 5)', (v) => parseInt(v, 10))
-    .option('-q, --quiet', 'suppress per-repo progress lines on stderr', false)
-    .option('--include-archived', 'enumerate archived repos', true)
-    .option('--no-include-archived', 'drop archived repos')
-    .option('--include-forks', 'enumerate fork repos', true)
-    .option('--no-include-forks', 'drop fork repos')
-    .action(async (opts) => {
-      await runAllCommand({
         scope: opts.scope,
         token: opts.token,
         output: opts.output,
@@ -140,6 +92,7 @@ function makeProgram(): Command {
         noActivity: opts.activity === false,
         quiet: opts.quiet,
         interactive: opts.interactive,
+        ignoreRepos: opts.ignoreRepos,
         includeArchived: opts.includeArchived,
         includeForks: opts.includeForks,
       });

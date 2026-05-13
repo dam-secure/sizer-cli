@@ -4,12 +4,11 @@
  *   parse args  →  preflight (token, git, redactor)
  *               →  enumerate repos via SCM
  *               →  classify default `included=` per decision D-B
- *               →  writeListCsv to --output (or stdout)
+ *               →  writeListCsv to stdout
  *
  * No clones, no tree fetches, no contents — cheap and fast even on 5k repos.
  */
 
-import { writeFile } from 'node:fs/promises';
 import { preflight } from '../preflight.js';
 import { createEnumerator, parseScope } from '../scm/factory.js';
 import { defaultIncluded, type RepoListing } from '../scm/types.js';
@@ -18,7 +17,6 @@ import { writeListCsv, type RepoListRow } from '../reporting/csv.js';
 export interface ListCommandOptions {
   scope: string;
   token?: string;
-  output?: string;
   /** When true, archived repos are still ENUMERATED but `included=false` by default. */
   includeArchived?: boolean;
   /** When true, fork repos are still ENUMERATED but `included=false` by default. */
@@ -70,12 +68,8 @@ export async function runListCommand(
 
   const csv = writeListCsv(filtered);
 
-  if (options.output) {
-    await writeFile(options.output, csv, 'utf8');
-  } else {
-    process.stdout.write(csv);
-    if (!csv.endsWith('\n')) process.stdout.write('\n');
-  }
+  process.stdout.write(csv);
+  if (!csv.endsWith('\n')) process.stdout.write('\n');
 
   return { rows: filtered, csv };
 }

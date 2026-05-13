@@ -1,19 +1,13 @@
 /**
  * CSV reporter tests.
  *
- *  - Round-trip: list CSV → simulate Excel-style edit → re-parse, decisions
- *    survive.
- *  - Schema validation: missing columns, malformed full_name, malformed
- *    boolean literals.
- *  - Excel-friendly bool literals (true/false/1/0/yes/no).
+ *  - List CSV writer: stable column order for `--list-only`.
  *  - Sized CSV writer: stable column order, NO tier/credits/pricing columns
  *    anywhere.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
-  ListCsvParseError,
-  readListCsv,
   writeListCsv,
   writeSizedCsv,
   SIZED_COLUMNS,
@@ -21,7 +15,6 @@ import {
   type RepoSizedRow,
 } from '../reporting/csv.js';
 import { renderSizedTable } from '../reporting/table.js';
-import { renderSizedJson } from '../reporting/json.js';
 
 function makeListRow(overrides: Partial<RepoListRow> = {}): RepoListRow {
   return {
@@ -67,9 +60,9 @@ function makeSizedRow(overrides: Partial<RepoSizedRow> = {}): RepoSizedRow {
   };
 }
 
-describe('writeListCsv / readListCsv round-trip', () => {
-  it('round-trips an unmodified list CSV', () => {
-    const before: RepoListRow[] = [
+describe('writeListCsv', () => {
+  it('emits the list column order and rows', () => {
+    const rows: RepoListRow[] = [
       makeListRow({ full_name: 'acme/api' }),
       makeListRow({ full_name: 'acme/web', size_kb: 5678 }),
       makeListRow({
@@ -78,109 +71,13 @@ describe('writeListCsv / readListCsv round-trip', () => {
         included: false,
       }),
     ];
-    const csv = writeListCsv(before);
-    const after = readListCsv(csv);
-    expect(after).toEqual(before);
-  });
 
-  it('preserves customer edits to `included` (Excel-style flip to false)', () => {
-    const initial = [
-      makeListRow({ full_name: 'acme/keep1' }),
-      makeListRow({ full_name: 'acme/keep2' }),
-      makeListRow({ full_name: 'acme/dropme' }),
-    ];
-    const csv = writeListCsv(initial);
-    // Simulate Excel edit: flip `included` to false on the third row.
-    // (The `included` column is followed by a trailing `,note` so the row
-    // ends in `,true,`; match that and replace.)
-    const edited = csv.replace(/^acme\/dropme,(.*),true,(.*)$/m, 'acme/dropme,$1,false,$2');
-    expect(edited).not.toBe(csv); // sanity: edit applied
-    const parsed = readListCsv(edited);
-    expect(parsed.find((r) => r.full_name === 'acme/dropme')?.included).toBe(false);
-    expect(
-      parsed.filter((r) => r.included).map((r) => r.full_name)
-    ).toEqual(['acme/keep1', 'acme/keep2']);
-  });
-
-  it('preserves customer edits to `note`', () => {
-    const initial = [makeListRow({ full_name: 'acme/api', note: '' })];
-    const csv = writeListCsv(initial);
-    // Replace the trailing empty note (after the last `,`) with text.
-    const edited = csv.replace(/^acme\/api,(.*),$/m, 'acme/api,$1,decommissioning soon');
-    expect(edited).not.toBe(csv);
-    const parsed = readListCsv(edited);
-    expect(parsed[0].note).toBe('decommissioning soon');
-  });
-});
-
-describe('readListCsv — Excel-friendly booleans', () => {
-  it.each([
-    ['true', true],
-    ['false', false],
-    ['TRUE', true],
-    ['False', false],
-    ['1', true],
-    ['0', false],
-    ['yes', true],
-    ['no', false],
-    ['Y', true],
-    ['n', false],
-    ['', false],
-  ] as Array<[string, boolean]>)(
-    'parses included="%s" as %s',
-    (input, expected) => {
-      const csv = [
-        'full_name,default_branch,size_kb,pushed_at,is_archived,is_fork,is_empty,included,note',
-        `acme/api,main,1,2026-01-01T00:00:00Z,false,false,false,${input},`,
-      ].join('\n');
-      expect(readListCsv(csv)[0].included).toBe(expected);
-    }
-  );
-
-  it('rejects unrecognised boolean literals with a row-named error', () => {
-    const csv = [
-      'full_name,default_branch,size_kb,pushed_at,is_archived,is_fork,is_empty,included,note',
-      'acme/api,main,1,2026-01-01T00:00:00Z,false,false,false,sortof,',
-    ].join('\n');
-    expect(() => readListCsv(csv)).toThrow(ListCsvParseError);
-    expect(() => readListCsv(csv)).toThrow(/acme\/api.*sortof/s);
-  });
-});
-
-describe('readListCsv — schema validation', () => {
-  it('rejects a CSV missing required columns', () => {
-    const csv = ['full_name,default_branch', 'acme/api,main'].join('\n');
-    expect(() => readListCsv(csv)).toThrow(/missing required column/i);
-  });
-
-  it('rejects a row whose full_name does not match owner/repo', () => {
-    const csv = [
-      'full_name,default_branch,size_kb,pushed_at,is_archived,is_fork,is_empty,included,note',
-      'acme,main,1,2026-01-01T00:00:00Z,false,false,false,true,',
-    ].join('\n');
-    expect(() => readListCsv(csv)).toThrow(/acme/);
-    expect(() => readListCsv(csv)).toThrow(/owner\/repo/);
-  });
-
-  it('rejects a non-integer size_kb with the row name', () => {
-    const csv = [
-      'full_name,default_branch,size_kb,pushed_at,is_archived,is_fork,is_empty,included,note',
-      'acme/api,main,big,2026-01-01T00:00:00Z,false,false,false,true,',
-    ].join('\n');
-    expect(() => readListCsv(csv)).toThrow(/acme\/api/);
-    expect(() => readListCsv(csv)).toThrow(/size_kb/);
-  });
-
-  it('tolerates fully-blank trailing rows that Excel sometimes inserts', () => {
-    const csv = [
-      'full_name,default_branch,size_kb,pushed_at,is_archived,is_fork,is_empty,included,note',
-      'acme/api,main,1,2026-01-01T00:00:00Z,false,false,false,true,',
-      ',,,,,,,,',
-      ',,,,,,,,',
-    ].join('\n');
-    const result = readListCsv(csv);
-    expect(result).toHaveLength(1);
-    expect(result[0].full_name).toBe('acme/api');
+    const csv = writeListCsv(rows);
+    expect(csv.split('\n')[0]).toBe(
+      'full_name,default_branch,size_kb,pushed_at,is_archived,is_fork,is_empty,included,note'
+    );
+    expect(csv).toContain('acme/api');
+    expect(csv).toContain('acme/old');
   });
 });
 
@@ -243,17 +140,3 @@ describe('renderSizedTable', () => {
   });
 });
 
-describe('renderSizedJson', () => {
-  it('emits a versioned report with rows and generatedAt', () => {
-    const json = renderSizedJson([makeSizedRow()], {
-      generatorVersion: '0.1.0',
-      now: new Date('2026-05-13T12:00:00Z'),
-    });
-    const parsed = JSON.parse(json);
-    expect(parsed.schemaVersion).toBe(1);
-    expect(parsed.generatedAt).toBe('2026-05-13T12:00:00.000Z');
-    expect(parsed.generator).toEqual({ name: '@damsecure/sizer', version: '0.1.0' });
-    expect(parsed.rows).toHaveLength(1);
-    expect(parsed.rows[0].full_name).toBe('acme/api');
-  });
-});
