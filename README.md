@@ -77,6 +77,9 @@ docker run --rm -it \
   --format csv > sized.csv
 ```
 
+Interactive mode needs Docker's `-it` flags so stdin stays open and a TTY is
+allocated. The prompt is written to stderr, keeping redirected CSV output clean.
+
 Skip specific repositories before cloning:
 
 ```bash

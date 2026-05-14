@@ -54,7 +54,7 @@ function makeProgram(): Command {
       new Option('--format <fmt>', 'csv | table')
         .choices(['csv', 'table'])
     )
-    .option('-i, --interactive', 'show a checkbox prompt to deselect repos before sizing', false)
+    .option('-i, --interactive', 'show a checkbox prompt to deselect repos before sizing (requires a TTY)', false)
     .option('--ignore-repos <repos>', 'comma-separated owner/repo names to skip before sizing')
     .option('--no-activity', 'skip git log calls (sizing only)')
     .option('-c, --concurrency <n>', 'parallel repos (default 5)', (v) => parseInt(v, 10))

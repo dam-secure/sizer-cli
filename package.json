@@ -18,7 +18,11 @@
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist *.tsbuildinfo",
     "lint": "tsc -p tsconfig.build.json --noEmit",
-    "test": "NODE_OPTIONS='--disable-warning=DEP0040' vitest run --config vitest.config.ts"
+    "test": "NODE_OPTIONS='--disable-warning=DEP0040' vitest run --config vitest.config.ts",
+    "preversion": "npm run lint && npm test && npm run build",
+    "release:patch": "npm version patch",
+    "release:minor": "npm version minor",
+    "release:major": "npm version major"
   },
   "keywords": [
     "damsecure",
