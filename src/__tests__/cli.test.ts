@@ -15,12 +15,12 @@ describe('makeProgram (commander wiring)', () => {
     expect(names).toEqual([]);
   });
 
-  it('root command requires --scope', () => {
+  it('root command accepts optional --scope', () => {
     const program = makeProgram();
     const opts = program.options;
     const scopeOpt = opts.find((o) => o.long === '--scope')!;
     expect(scopeOpt).toBeDefined();
-    expect(scopeOpt.required).toBe(true);
+    expect(scopeOpt.mandatory).toBe(false);
   });
 
   it('root command wires sizing and inspection options', () => {

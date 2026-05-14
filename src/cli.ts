@@ -43,9 +43,9 @@ function makeProgram(): Command {
       'Produce a sizing + activity fact sheet for your repositories that Dam Secure can quote against — without giving us access to your code. No pricing logic; the output CSV is the deliverable.'
     )
     .version(VERSION)
-    .requiredOption(
+    .option(
       '-s, --scope <spec>',
-      '"org=acme" or "user" (or "github:org=acme" explicitly)'
+      'GitHub owner/login to include, e.g. "acme" or "john-smith" (default: all visible repos, acme+john-smith)'
     )
     .option('-t, --token <pat>', 'GitHub PAT (or env GHPAT)')
     .option('--list-only', 'enumerate repos and write the list CSV to stdout without cloning', false)

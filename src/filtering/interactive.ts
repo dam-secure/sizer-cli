@@ -31,15 +31,20 @@ export async function interactiveDeselect(
 
   assertInteractiveTty(input, output);
 
-  const selectedNames = await prompt({
-    message:
-      'Select repositories to size (space toggles, enter confirms; defaults match the `included` column):',
-    choices: rows.map((r) => ({
+  const choices = [...rows]
+    .sort(compareInteractiveRows)
+    .map((r) => ({
       name: `${r.full_name}  (${formatBadges(r)}${r.size_kb} KB)`,
       value: r.full_name,
       checked: r.included,
-    })),
+    }));
+
+  const selectedNames = await prompt({
+    message:
+      'Select repositories to size (space toggles, enter confirms; defaults match the `included` column):',
+    choices,
     pageSize: 20,
+    loop: false,
   }, {
     input,
     output,
@@ -47,6 +52,11 @@ export async function interactiveDeselect(
 
   const selected = new Set(selectedNames);
   return rows.map((r) => ({ ...r, included: selected.has(r.full_name) }));
+}
+
+function compareInteractiveRows(a: RepoListRow, b: RepoListRow): number {
+  if (a.included !== b.included) return a.included ? -1 : 1;
+  return a.full_name.localeCompare(b.full_name);
 }
 
 function assertInteractiveTty(

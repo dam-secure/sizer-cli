@@ -17,6 +17,7 @@ import { GitHubEnumerator, buildAuthenticatedCloneUrl } from '../scm/github.js';
 import {
   parseScope,
   createEnumerator,
+  resolveScope,
   ScopeParseError,
 } from '../scm/factory.js';
 import { defaultIncluded } from '../scm/types.js';
@@ -78,29 +79,54 @@ function makeRepo(overrides: Record<string, unknown> = {}): Record<string, unkno
 }
 
 describe('parseScope', () => {
-  it('parses a default GitHub org scope', () => {
+  it('parses a GitHub owner scope', () => {
+    expect(parseScope('acme')).toEqual({
+      provider: 'github',
+      type: 'owner',
+      owner: 'acme',
+    });
+  });
+
+  it('parses an explicit github:<owner> scope', () => {
+    expect(parseScope('github:acme')).toEqual({
+      provider: 'github',
+      type: 'owner',
+      owner: 'acme',
+    });
+  });
+
+  it('parses all-visible scope aliases', () => {
+    expect(parseScope('all')).toEqual({ provider: 'github', type: 'all' });
+    expect(parseScope('user')).toEqual({ provider: 'github', type: 'all' });
+  });
+
+  it('keeps legacy org= and user= forms as owner aliases', () => {
     expect(parseScope('org=acme')).toEqual({
       provider: 'github',
-      type: 'org',
-      name: 'acme',
+      type: 'owner',
+      owner: 'acme',
     });
-  });
-
-  it('parses an explicit github:org=... scope', () => {
-    expect(parseScope('github:org=acme')).toEqual({
+    expect(parseScope('user=octocat')).toEqual({
       provider: 'github',
-      type: 'org',
-      name: 'acme',
+      type: 'owner',
+      owner: 'octocat',
     });
-  });
-
-  it('parses the bare "user" scope', () => {
-    expect(parseScope('user')).toEqual({ provider: 'github', type: 'user' });
   });
 
   it('throws on missing scope', () => {
     expect(() => parseScope('')).toThrow(ScopeParseError);
     expect(() => parseScope('   ')).toThrow(ScopeParseError);
+  });
+
+  it('resolves a missing CLI scope to all visible repos by default', () => {
+    expect(resolveScope(undefined)).toEqual({
+      scope: { provider: 'github', type: 'all' },
+      usedDefault: true,
+    });
+    expect(resolveScope('acme')).toEqual({
+      scope: { provider: 'github', type: 'owner', owner: 'acme' },
+      usedDefault: false,
+    });
   });
 
   it('throws on unknown provider', () => {
@@ -121,7 +147,7 @@ describe('parseScope', () => {
 
 describe('createEnumerator', () => {
   it('returns a GitHubEnumerator for github scopes', () => {
-    const scope = parseScope('org=acme');
+    const scope = parseScope('acme');
     expect(createEnumerator(scope, TOKEN)).toBeInstanceOf(GitHubEnumerator);
   });
 
@@ -191,7 +217,7 @@ describe('GitHubEnumerator.enumerate', () => {
   it('returns a normalised RepoListing[] from a single page', async () => {
     const fetchMock = makeFetchMock([
       {
-        match: (u) => u.includes('/orgs/acme/repos'),
+        match: (u) => u.includes('/user/repos'),
         respond: () =>
           jsonResponse([
             makeRepo({ full_name: 'acme/api' }),
@@ -202,7 +228,7 @@ describe('GitHubEnumerator.enumerate', () => {
 
     const enumerator = new GitHubEnumerator(TOKEN, { request: { fetch: fetchMock } });
     const result = await enumerator.enumerate(
-      { provider: 'github', type: 'org', name: 'acme' },
+      { provider: 'github', type: 'owner', owner: 'acme' },
       { includeArchived: true, includeForks: true }
     );
 
@@ -226,10 +252,10 @@ describe('GitHubEnumerator.enumerate', () => {
 
     const fetchMock = makeFetchMock([
       {
-        match: (u) => u.includes('/orgs/acme/repos') && !u.includes('page=2'),
+        match: (u) => u.includes('/user/repos') && !u.includes('page=2'),
         respond: () =>
           jsonResponse(page1, 200, {
-            link: '<https://api.github.com/organizations/1/repos?per_page=100&page=2>; rel="next"',
+            link: '<https://api.github.com/user/repos?per_page=100&page=2>; rel="next"',
           }),
       },
       {
@@ -240,7 +266,7 @@ describe('GitHubEnumerator.enumerate', () => {
 
     const enumerator = new GitHubEnumerator(TOKEN, { request: { fetch: fetchMock } });
     const result = await enumerator.enumerate(
-      { provider: 'github', type: 'org', name: 'acme' },
+      { provider: 'github', type: 'owner', owner: 'acme' },
       { includeArchived: true, includeForks: true }
     );
 
@@ -253,7 +279,7 @@ describe('GitHubEnumerator.enumerate', () => {
   it('classifies archived / fork / empty correctly', async () => {
     const fetchMock = makeFetchMock([
       {
-        match: (u) => u.includes('/orgs/acme/repos'),
+        match: (u) => u.includes('/user/repos'),
         respond: () =>
           jsonResponse([
             makeRepo({ full_name: 'acme/active' }),
@@ -271,7 +297,7 @@ describe('GitHubEnumerator.enumerate', () => {
 
     const enumerator = new GitHubEnumerator(TOKEN, { request: { fetch: fetchMock } });
     const result = await enumerator.enumerate(
-      { provider: 'github', type: 'org', name: 'acme' },
+      { provider: 'github', type: 'owner', owner: 'acme' },
       { includeArchived: true, includeForks: true }
     );
 
@@ -294,7 +320,7 @@ describe('GitHubEnumerator.enumerate', () => {
   it('drops archived / forks when includeArchived/includeForks is false', async () => {
     const fetchMock = makeFetchMock([
       {
-        match: (u) => u.includes('/orgs/acme/repos'),
+        match: (u) => u.includes('/user/repos'),
         respond: () =>
           jsonResponse([
             makeRepo({ full_name: 'acme/active' }),
@@ -306,17 +332,40 @@ describe('GitHubEnumerator.enumerate', () => {
 
     const enumerator = new GitHubEnumerator(TOKEN, { request: { fetch: fetchMock } });
     const result = await enumerator.enumerate(
-      { provider: 'github', type: 'org', name: 'acme' },
+      { provider: 'github', type: 'owner', owner: 'acme' },
       { includeArchived: false, includeForks: false }
     );
 
     expect(result.map((r) => r.fullName)).toEqual(['acme/active']);
   });
 
-  it('maps 404 to a friendly "org not found" error', async () => {
+  it('narrows an owner scope to matching owner/repo names', async () => {
     const fetchMock = makeFetchMock([
       {
-        match: (u) => u.includes('/orgs/missing/repos'),
+        match: (u) =>
+          u.includes('/user/repos') &&
+          u.includes('affiliation=owner%2Ccollaborator%2Corganization_member'),
+        respond: () =>
+          jsonResponse([
+            makeRepo({ full_name: 'patrickcollins12/api' }),
+            makeRepo({ full_name: 'dam-secure/backend' }),
+          ]),
+      },
+    ]);
+
+    const enumerator = new GitHubEnumerator(TOKEN, { request: { fetch: fetchMock } });
+    const result = await enumerator.enumerate(
+      { provider: 'github', type: 'owner', owner: 'patrickcollins12' },
+      { includeArchived: true, includeForks: true }
+    );
+
+    expect(result.map((r) => r.fullName)).toEqual(['patrickcollins12/api']);
+  });
+
+  it('maps 404 to a friendly enumeration error', async () => {
+    const fetchMock = makeFetchMock([
+      {
+        match: (u) => u.includes('/user/repos'),
         respond: () =>
           jsonResponse({ message: 'Not Found' }, 404),
       },
@@ -324,23 +373,23 @@ describe('GitHubEnumerator.enumerate', () => {
     const enumerator = new GitHubEnumerator(TOKEN, { request: { fetch: fetchMock } });
     await expect(
       enumerator.enumerate(
-        { provider: 'github', type: 'org', name: 'missing' },
+        { provider: 'github', type: 'owner', owner: 'missing' },
         { includeArchived: true, includeForks: true }
       )
-    ).rejects.toThrow(/missing.*not found/i);
+    ).rejects.toThrow(/GitHub returned 404 enumerating repos/);
   });
 
   it('maps 401 to a friendly token-rejected error', async () => {
     const fetchMock = makeFetchMock([
       {
-        match: (u) => u.includes('/orgs/acme/repos'),
+        match: (u) => u.includes('/user/repos'),
         respond: () => jsonResponse({ message: 'Bad credentials' }, 401),
       },
     ]);
     const enumerator = new GitHubEnumerator(TOKEN, { request: { fetch: fetchMock } });
     await expect(
       enumerator.enumerate(
-        { provider: 'github', type: 'org', name: 'acme' },
+        { provider: 'github', type: 'owner', owner: 'acme' },
         { includeArchived: true, includeForks: true }
       )
     ).rejects.toThrow(/rejected the token/);
@@ -364,13 +413,13 @@ describe('log redaction guardrail', () => {
   it('a reasonable JSON dump of a RepoListing does not leak the token through any other field', async () => {
     const fetchMock = makeFetchMock([
       {
-        match: (u) => u.includes('/orgs/acme/repos'),
+        match: (u) => u.includes('/user/repos'),
         respond: () => jsonResponse([makeRepo()]),
       },
     ]);
     const enumerator = new GitHubEnumerator(TOKEN, { request: { fetch: fetchMock } });
     const [listing] = await enumerator.enumerate(
-      { provider: 'github', type: 'org', name: 'acme' },
+      { provider: 'github', type: 'owner', owner: 'acme' },
       { includeArchived: true, includeForks: true }
     );
 

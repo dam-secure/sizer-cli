@@ -10,12 +10,16 @@
  */
 
 import { preflight } from '../preflight.js';
-import { createEnumerator, parseScope } from '../scm/factory.js';
+import {
+  DEFAULT_SCOPE_NOTICE,
+  createEnumerator,
+  resolveScope,
+} from '../scm/factory.js';
 import { defaultIncluded, type RepoListing } from '../scm/types.js';
 import { writeListCsv, type RepoListRow } from '../reporting/csv.js';
 
 export interface ListCommandOptions {
-  scope: string;
+  scope?: string;
   token?: string;
   /** When true, archived repos are still ENUMERATED but `included=false` by default. */
   includeArchived?: boolean;
@@ -46,7 +50,8 @@ export async function runListCommand(
   options: ListCommandOptions
 ): Promise<ListCommandResult> {
   const { token } = await preflight({ tokenFlag: options.token });
-  const scope = parseScope(options.scope);
+  const { scope, usedDefault } = resolveScope(options.scope);
+  if (usedDefault) process.stderr.write(DEFAULT_SCOPE_NOTICE);
   const enumerator = createEnumerator(scope, token);
 
   const repos = await enumerator.enumerate(scope, {

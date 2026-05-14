@@ -1,9 +1,8 @@
 # Dam Secure Sizer
 
 Dam Secure Sizer is a customer-run Docker tool for producing the repository
-facts Dam Secure needs to prepare size your repos. You run it on your own machine
-against your own GitHub org, then decide whether to share the resulting CSV
-with Dam Secure.
+facts Dam Secure needs to size your repos. You run it on your own machine, then
+decide whether to share the resulting CSV with Dam Secure.
 
 The tool does not run in Dam Secure infrastructure, does not phone home, and
 does not give Dam Secure access to your repositories. It only emits file-count
@@ -30,31 +29,22 @@ and activity facts.
 
 ## Quick Start
 
+Create a GitHub PAT with read access to the repositories you want sized, then:
+
 ```bash
 export GHPAT=github_pat_...
 
 docker run --rm \
   -e GHPAT \
   ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=<myorg>
-```
-
-This prints a table in your terminal. If you want a CSV file, see
-[Advanced Usage](#advanced-usage).
-
-## Advanced Usage
-
-Write the CSV artifact to a local file using stdout redirection:
-
-```bash
-docker run --rm \
-  -e GHPAT \
-  ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=<myorg> \
+  --quiet \
   --format csv > sized.csv
 ```
 
+By default, the sizer considers all repositories visible to the GitHub token.
 Look at `sized.csv` and send it to your Dam Secure contact.
+
+## Examples
 
 Preview the repos that would be considered, without cloning anything:
 
@@ -62,33 +52,39 @@ Preview the repos that would be considered, without cloning anything:
 docker run --rm \
   -e GHPAT \
   ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=<myorg> \
   --list-only > repos.csv
 ```
 
-Run an interactive checkbox prompt before sizing:
-
-```bash
-docker run --rm -it \
-  -e GHPAT \
-  ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=<myorg> \
-  --interactive \
-  --format csv > sized.csv
-```
-
-Interactive mode needs Docker's `-it` flags so stdin stays open and a TTY is
-allocated. The prompt is written to stderr, keeping redirected CSV output clean.
-
-Skip specific repositories before cloning:
+Restrict enumeration to one GitHub owner, which can be either an organization or
+personal account:
 
 ```bash
 docker run --rm \
   -e GHPAT \
   ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=<myorg> \
-  --ignore-repos <myorg>/legacy,<myorg>/demo \
-  --format csv > sized.csv
+  --scope <owner>
+```
+
+Run an interactive checkbox prompt before sizing. Docker needs `-it` so the
+prompt can receive input:
+
+```bash
+docker run --rm -it \
+  -e GHPAT \
+  ghcr.io/dam-secure/sizer-cli:latest \
+  --interactive
+```
+
+The prompt is written to stderr, keeping redirected CSV output clean.
+
+Skip specific repositories before cloning. `--ignore-repos` uses exact
+`owner/repo` names:
+
+```bash
+docker run --rm \
+  -e GHPAT \
+  ghcr.io/dam-secure/sizer-cli:latest \
+  --ignore-repos <owner>/legacy,<owner>/demo
 ```
 
 Write directly from the container to a mounted output directory:
@@ -98,8 +94,13 @@ docker run --rm \
   -e GHPAT \
   -v "$PWD:/out" \
   ghcr.io/dam-secure/sizer-cli:latest \
-  --scope org=<myorg> \
   --output /out/sized.csv
+```
+
+See all CLI options:
+
+```bash
+docker run --rm ghcr.io/dam-secure/sizer-cli:latest --help
 ```
 
 ## Run From Source
@@ -110,16 +111,20 @@ published Docker image.
 ```bash
 gh repo clone dam-secure/sizer-cli
 cd sizer-cli
-npm install
+npm ci
 export GHPAT=github_pat_...
 
-npm run dev -- --scope org=<myorg>
+npm run --silent dev -- --format csv > sized.csv
 ```
 
-Write CSV from the local dev command:
+Add `--scope <owner>` if you want to restrict the repository set to one GitHub
+organization or personal account.
+
+Build and test the Docker image locally:
 
 ```bash
-npm run dev -- --scope org=<myorg> --format csv > sized.csv
+docker build -t damsecure-sizer:local .
+docker run --rm damsecure-sizer:local --help
 ```
 
 ## Authentication
@@ -131,7 +136,7 @@ Recommended:
 
 ```bash
 export GHPAT=github_pat_...
-docker run --rm -e GHPAT ghcr.io/dam-secure/sizer-cli:latest --scope org=<myorg>
+docker run --rm -e GHPAT ghcr.io/dam-secure/sizer-cli:latest --help
 ```
 
 Avoid putting the token directly in the `docker run` command if your shell
@@ -178,8 +183,6 @@ committers_last_4w, committers_last_13w, committers_last_52w,
 top_contributors, activity_unavailable, error
 ```
 
-It never includes pricing fields such as `tier`, `credits`, `cost`, or `price`.
-
 Example terminal table:
 
 ```text
@@ -212,15 +215,6 @@ For each included repository, the sizer:
 6. Computes recent activity from `git log`.
 7. Deletes the temporary clone.
 
-The core invariant is:
-
-```text
-total_files == counted_files + excluded_global + excluded_repo
-```
-
-`counted_files` is intentionally conservative. It is a worst-case estimate
-before production AI exclusions, which often reduce the final billable set.
-
 ## Privacy
 
 - The tool contacts GitHub only: `api.github.com` for enumeration and
@@ -234,36 +228,16 @@ before production AI exclusions, which often reduce the final billable set.
 
 ## Scopes
 
-```text
-org=acme                  GitHub org "acme"
-github:org=acme           same, explicit provider prefix
-user                      repos visible to the authenticated PAT
-github:user               same, explicit provider prefix
-gitlab:group=foo          planned, currently not implemented
-bitbucket:workspace=foo   planned, currently not implemented
-azure:org=foo             planned, currently not implemented
+If `--scope` is omitted, the sizer considers all repos visible to the
+authenticated PAT. Use `--scope <owner>` to keep only repos whose full name
+starts with `<owner>/`, for example `dam-secure/backend` or
+`patrickcollins12/repo1`.
+
+Run `--help` to see every supported option:
+
+```bash
+docker run --rm ghcr.io/dam-secure/sizer-cli:latest --help
 ```
-
-## Options
-
-```text
---scope <spec>                 required scope, e.g. org=acme
---token <pat>                  GitHub PAT; overrides GHPAT
---output <path>                write result to a file
---format csv|table             output format
---list-only                    print repo list CSV and skip cloning
---interactive                  prompt before sizing
---ignore-repos owner/repo,...  exact repo full names to skip
---no-activity                  skip git log activity analysis
---concurrency <n>              repo parallelism, default 5
---no-include-archived          drop archived repos from enumeration
---no-include-forks             drop fork repos from enumeration
---quiet                        suppress progress output
---debug                        print stack traces and suppressed error details
-```
-
-`--ignore-repos` uses exact full-name matching only. It does not support glob
-patterns.
 
 ## Reproducibility
 

@@ -2,11 +2,9 @@
  * Scope-string parser + enumerator factory.
  *
  * Scope syntax (CLI: --scope <spec>):
- *   "org=acme"             → GitHub org "acme"
- *   "github:org=acme"      → same (explicit provider)
- *   "user"                 → repos visible to the PAT-bearing user
- *   "github:user"          → same
- *   "github:user=octocat"  → reserved for v2 (currently treated as 'user')
+ *   omitted / "all"        → all repos visible to the PAT-bearing user
+ *   "acme"                 → repos whose full name starts with "acme/"
+ *   "github:acme"          → same, explicit provider
  *   "gitlab:group=foo"     → v2; throws today
  *   "bitbucket:workspace=foo" → v2; throws today
  *   "azure:org=foo[/project=bar]" → v2; throws today
@@ -18,6 +16,11 @@ import { BitbucketEnumerator } from './bitbucket.js';
 import { AzureDevOpsEnumerator } from './azure.js';
 import type { ScmEnumerator, ScmScope } from './types.js';
 
+export const DEFAULT_SCOPE_SPEC = 'all';
+
+export const DEFAULT_SCOPE_NOTICE =
+  '[sizer] no --scope supplied; using all repositories visible to the GitHub token. Use --scope <owner> to restrict enumeration.\n';
+
 export class ScopeParseError extends Error {
   constructor(message: string) {
     super(message);
@@ -25,16 +28,29 @@ export class ScopeParseError extends Error {
   }
 }
 
+export interface ResolvedScope {
+  scope: ScmScope;
+  usedDefault: boolean;
+}
+
+export function resolveScope(raw?: string): ResolvedScope {
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    return { scope: parseScope(DEFAULT_SCOPE_SPEC), usedDefault: true };
+  }
+
+  return { scope: parseScope(raw), usedDefault: false };
+}
+
 export function parseScope(raw: string): ScmScope {
   if (typeof raw !== 'string' || raw.trim().length === 0) {
-    throw new ScopeParseError('--scope is required (e.g., "org=acme" or "user")');
+    throw new ScopeParseError('--scope must be a GitHub owner, e.g. "acme".');
   }
 
   const trimmed = raw.trim();
 
   // Split optional provider prefix.
-  // "github:org=acme" → provider="github", body="org=acme"
-  // "org=acme"        → provider="github" (default), body="org=acme"
+  // "github:acme" → provider="github", body="acme"
+  // "acme"        → provider="github" (default), body="acme"
   let provider: string;
   let body: string;
   const providerMatch = trimmed.match(/^([a-z]+):(.+)$/i);
@@ -88,20 +104,28 @@ export function parseScope(raw: string): ScmScope {
 }
 
 function parseGitHubBody(body: string): ScmScope {
-  if (body === 'user') {
-    return { provider: 'github', type: 'user' };
+  if (body === 'all' || body === 'user') {
+    return { provider: 'github', type: 'all' };
   }
   const userMatch = body.match(/^user=(.+)$/);
   if (userMatch) {
-    return { provider: 'github', type: 'user', name: userMatch[1] };
+    return parseGitHubOwner(userMatch[1]);
   }
   const orgMatch = body.match(/^org=(.+)$/);
   if (orgMatch) {
-    return { provider: 'github', type: 'org', name: orgMatch[1] };
+    return parseGitHubOwner(orgMatch[1]);
   }
-  throw new ScopeParseError(
-    `GitHub scope must be "org=<name>" or "user" (got "${body}").`
-  );
+  return parseGitHubOwner(body);
+}
+
+function parseGitHubOwner(owner: string): ScmScope {
+  const trimmed = owner.trim();
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(trimmed)) {
+    throw new ScopeParseError(
+      `GitHub scope must be an owner/login such as "acme" (got "${owner}").`
+    );
+  }
+  return { provider: 'github', type: 'owner', owner: trimmed };
 }
 
 export interface CreateEnumeratorOptions {

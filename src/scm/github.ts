@@ -102,21 +102,10 @@ export class GitHubEnumerator implements ScmEnumerator {
 
     let raw: unknown[];
     try {
-      if (scope.type === 'org') {
-        raw = await this.client.paginate(this.client.rest.repos.listForOrg, {
-          org: scope.name,
-          per_page: 100,
-          // Default 'all' covers public + private the PAT can see; this is
-          // what every prospect should expect when sizing their own org.
-          type: 'all',
-        });
-      } else {
-        // 'user' scope ⇒ enumerate repos visible to the PAT-bearing user
-        raw = await this.client.paginate(this.client.rest.repos.listForAuthenticatedUser, {
-          per_page: 100,
-          affiliation: 'owner,collaborator,organization_member',
-        });
-      }
+      raw = await this.client.paginate(this.client.rest.repos.listForAuthenticatedUser, {
+        per_page: 100,
+        affiliation: 'owner,collaborator,organization_member',
+      });
     } catch (err) {
       throw mapGitHubError(err, scope);
     }
@@ -124,6 +113,13 @@ export class GitHubEnumerator implements ScmEnumerator {
     return raw
       .map((repo) => this.toListing(repo as GitHubRepo))
       .filter((listing) => {
+        if (
+          scope.provider === 'github' &&
+          scope.type === 'owner' &&
+          ownerOf(listing.fullName) !== scope.owner.toLowerCase()
+        ) {
+          return false;
+        }
         if (!opts.includeArchived && listing.isArchived) {
           // Archived repos are still ENUMERATED (so the customer sees they
           // exist in the list CSV with `included=false`); only swallow
@@ -162,6 +158,10 @@ export class GitHubEnumerator implements ScmEnumerator {
   }
 }
 
+function ownerOf(fullName: string): string {
+  return fullName.split('/')[0]?.toLowerCase() ?? '';
+}
+
 interface GitHubRepo {
   full_name: string;
   clone_url?: string;
@@ -186,11 +186,6 @@ function mapGitHubError(err: unknown, scope: ScmScope): Error {
     );
   }
   if (e.status === 404) {
-    if (scope.provider === 'github' && scope.type === 'org') {
-      return new Error(
-        `GitHub org "${scope.name}" not found (404), or your token lacks access to it.`
-      );
-    }
     return new Error('GitHub returned 404 enumerating repos.');
   }
   if (e.status === 403) {

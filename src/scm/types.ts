@@ -40,8 +40,8 @@ export interface RepoListing {
  * callers don't have to be retro-fitted when GitLab/Bitbucket/Azure land).
  */
 export type ScmScope =
-  | { provider: 'github'; type: 'org'; name: string }
-  | { provider: 'github'; type: 'user'; name?: string }
+  | { provider: 'github'; type: 'all' }
+  | { provider: 'github'; type: 'owner'; owner: string }
   | { provider: 'gitlab'; group: string }
   | { provider: 'bitbucket'; workspace: string }
   | { provider: 'azure'; organization: string; project?: string };

@@ -19,7 +19,11 @@ import { writeFile } from 'node:fs/promises';
 import pLimit from 'p-limit';
 import { simpleGit } from 'simple-git';
 import { preflight } from '../preflight.js';
-import { createEnumerator, parseScope } from '../scm/factory.js';
+import {
+  DEFAULT_SCOPE_NOTICE,
+  createEnumerator,
+  resolveScope,
+} from '../scm/factory.js';
 import type { RepoListing } from '../scm/types.js';
 import { listingToRow } from './list.js';
 import { writeSizedCsv, type RepoListRow, type RepoSizedRow } from '../reporting/csv.js';
@@ -49,7 +53,7 @@ export type SizeOutputFormat = 'csv' | 'table';
 
 export interface SizeCommandOptions {
   /** Scope to enumerate before sizing. */
-  scope: string;
+  scope?: string;
 
   token?: string;
   output?: string;
@@ -84,15 +88,12 @@ export interface SizeCommandResult {
 export async function runSizeCommand(
   options: SizeCommandOptions
 ): Promise<SizeCommandResult> {
-  if (!options.scope) {
-    throw new Error('size: provide --scope <spec>.');
-  }
-
   const ignoredRepos = parseIgnoredRepos(options.ignoreRepos);
   const { token } = await preflight({ tokenFlag: options.token });
 
   // 1. Enumerate and resolve list rows.
-  const scope = parseScope(options.scope);
+  const { scope, usedDefault } = resolveScope(options.scope);
+  if (usedDefault) process.stderr.write(DEFAULT_SCOPE_NOTICE);
   const enumerator = createEnumerator(scope, token);
   const repos = await enumerator.enumerate(scope, {
     includeArchived: options.includeArchived ?? true,

@@ -102,7 +102,7 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
     const outputPath = join(workTreePath, 'sized.csv');
     process.env.GHPAT = 'ghp_fake_for_test';
     const result = await runSizeCommand({
-      scope: 'org=acme',
+      scope: 'acme',
       output: outputPath,
       format: 'csv',
       ignoreRepos: 'acme/ignored',
@@ -142,6 +142,35 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
     expect(() => parseIgnoredRepos('not-a-full-name')).toThrow(/owner\/repo/);
   });
 
+  it('defaults omitted scope to repos visible to the GitHub token', async () => {
+    const fakeEnumerator: ScmEnumerator = {
+      enumerate: async () => [],
+    };
+    vi.mocked(createEnumerator).mockClear();
+    vi.mocked(createEnumerator).mockReturnValue(fakeEnumerator);
+
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    process.env.GHPAT = 'ghp_fake_for_test';
+    try {
+      const result = await runSizeCommand({
+        format: 'csv',
+        output: join(workTreePath, 'default-scope-sized.csv'),
+      });
+
+      expect(result.rows).toEqual([]);
+      expect(createEnumerator).toHaveBeenCalledWith(
+        { provider: 'github', type: 'all' },
+        'ghp_fake_for_test'
+      );
+      expect(stderrWrite).toHaveBeenCalledWith(
+        expect.stringContaining('no --scope supplied')
+      );
+    } finally {
+      stderrWrite.mockRestore();
+    }
+  });
+
   it('treats a cloned repo with no HEAD commit as empty, not errored', async () => {
     const fakeEnumerator: ScmEnumerator = {
       enumerate: async () => [
@@ -162,7 +191,7 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
     process.env.GHPAT = 'ghp_fake_for_test';
     const outputPath = join(workTreePath, 'empty-sized.csv');
     const result = await runSizeCommand({
-      scope: 'org=acme',
+      scope: 'acme',
       format: 'csv',
       quiet: true,
       output: outputPath,

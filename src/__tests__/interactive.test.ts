@@ -6,9 +6,20 @@ import type { RepoListRow } from '../reporting/csv.js';
 
 const rows: RepoListRow[] = [
   {
-    full_name: 'acme/api',
+    full_name: 'acme/z-api',
     default_branch: 'main',
     size_kb: 123,
+    pushed_at: '',
+    is_archived: false,
+    is_fork: false,
+    is_empty: false,
+    included: true,
+    note: '',
+  },
+  {
+    full_name: 'acme/a-web',
+    default_branch: 'main',
+    size_kb: 67,
     pushed_at: '',
     is_archived: false,
     is_fork: false,
@@ -43,7 +54,7 @@ function fakeOutput(isTTY: boolean): NodeJS.WriteStream {
 
 describe('interactiveDeselect', () => {
   it('requires an interactive TTY before prompting', async () => {
-    const promptCheckbox = fakePrompt(['acme/api']);
+    const promptCheckbox = fakePrompt(['acme/z-api']);
 
     await expect(
       interactiveDeselect(rows, {
@@ -55,7 +66,7 @@ describe('interactiveDeselect', () => {
     expect(promptCheckbox).not.toHaveBeenCalled();
   });
 
-  it('uses stderr for prompt output and mirrors included defaults', async () => {
+  it('uses stderr for prompt output, sorts defaults first, and mirrors included defaults', async () => {
     const input = fakeInput(true);
     const output = fakeOutput(true);
     const promptCheckbox = fakePrompt(['acme/archive']);
@@ -68,9 +79,15 @@ describe('interactiveDeselect', () => {
 
     expect(promptCheckbox).toHaveBeenCalledWith(
       expect.objectContaining({
+        loop: false,
+        pageSize: 20,
         choices: [
           expect.objectContaining({
-            value: 'acme/api',
+            value: 'acme/a-web',
+            checked: true,
+          }),
+          expect.objectContaining({
+            value: 'acme/z-api',
             checked: true,
           }),
           expect.objectContaining({
@@ -83,7 +100,8 @@ describe('interactiveDeselect', () => {
       { input, output }
     );
     expect(result.map((r) => [r.full_name, r.included])).toEqual([
-      ['acme/api', false],
+      ['acme/z-api', false],
+      ['acme/a-web', false],
       ['acme/archive', true],
     ]);
   });
