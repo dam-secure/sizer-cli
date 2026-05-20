@@ -35,10 +35,7 @@ import {
   type WorkspaceHandle,
 } from '../clone/workspace.js';
 import { analyseFiles } from '../analyse/files.js';
-import {
-  analyseActivity,
-  formatTopContributors,
-} from '../analyse/activity.js';
+import { analyseActivity } from '../analyse/activity.js';
 import {
   QUIET_REPORTER,
   createStderrReporter,
@@ -299,12 +296,10 @@ async function sizeOneRepo(
 
     const result: RepoSizedRow = {
       full_name: row.full_name,
-      default_branch: row.default_branch || listing.defaultBranch,
       size_kb: row.size_kb,
       pushed_at: row.pushed_at,
       note: row.note,
 
-      commit_sha: filesResult.commitSha,
       total_files: filesResult.totalFiles,
       excluded_global: filesResult.excludedGlobal,
       excluded_repo: filesResult.excludedRepo,
@@ -320,7 +315,6 @@ async function sizeOneRepo(
       committers_last_4w: activity?.committersLast4w ?? -1,
       committers_last_13w: activity?.committersLast13w ?? -1,
       committers_last_52w: activity?.committersLast52w ?? -1,
-      top_contributors: activity ? formatTopContributors(activity.topContributors) : '',
       activity_unavailable: activity ? activity.activityUnavailable : false,
 
       error: '',
@@ -354,11 +348,9 @@ function isEmptyHeadError(message: string): boolean {
 function emptyRepoRow(row: RepoListRow): RepoSizedRow {
   return {
     full_name: row.full_name,
-    default_branch: row.default_branch,
     size_kb: row.size_kb,
     pushed_at: row.pushed_at,
     note: row.note,
-    commit_sha: '',
     total_files: 0,
     excluded_global: 0,
     excluded_repo: 0,
@@ -373,7 +365,6 @@ function emptyRepoRow(row: RepoListRow): RepoSizedRow {
     committers_last_4w: -1,
     committers_last_13w: -1,
     committers_last_52w: -1,
-    top_contributors: '',
     activity_unavailable: true,
     error: '',
   };
@@ -397,11 +388,9 @@ function formatRepoSummary(row: RepoSizedRow): string {
 function errorRow(row: RepoListRow, message: string): RepoSizedRow {
   return {
     full_name: row.full_name,
-    default_branch: row.default_branch,
     size_kb: row.size_kb,
     pushed_at: row.pushed_at,
     note: row.note,
-    commit_sha: '',
     total_files: -1,
     excluded_global: -1,
     excluded_repo: -1,
@@ -416,7 +405,6 @@ function errorRow(row: RepoListRow, message: string): RepoSizedRow {
     committers_last_4w: -1,
     committers_last_13w: -1,
     committers_last_52w: -1,
-    top_contributors: '',
     activity_unavailable: true,
     error: message,
   };

@@ -9,11 +9,9 @@ import type { RepoSizedRow } from '../reporting/csv.js';
 function row(overrides: Partial<RepoSizedRow>): RepoSizedRow {
   return {
     full_name: 'acme/x',
-    default_branch: 'main',
     size_kb: 0,
     pushed_at: '2026-01-01T00:00:00Z',
     note: '',
-    commit_sha: '0'.repeat(40),
     total_files: 10,
     excluded_global: 0,
     excluded_repo: 0,
@@ -28,7 +26,6 @@ function row(overrides: Partial<RepoSizedRow>): RepoSizedRow {
     committers_last_4w: 0,
     committers_last_13w: 0,
     committers_last_52w: 0,
-    top_contributors: '',
     activity_unavailable: false,
     error: '',
     ...overrides,

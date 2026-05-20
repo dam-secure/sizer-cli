@@ -34,11 +34,9 @@ function makeListRow(overrides: Partial<RepoListRow> = {}): RepoListRow {
 function makeSizedRow(overrides: Partial<RepoSizedRow> = {}): RepoSizedRow {
   return {
     full_name: 'acme/api',
-    default_branch: 'main',
     size_kb: 1234,
     pushed_at: '2026-05-10T12:34:56Z',
     note: '',
-    commit_sha: '0'.repeat(40),
     total_files: 100,
     excluded_global: 30,
     excluded_repo: 10,
@@ -53,7 +51,6 @@ function makeSizedRow(overrides: Partial<RepoSizedRow> = {}): RepoSizedRow {
     committers_last_4w: 3,
     committers_last_13w: 6,
     committers_last_52w: 12,
-    top_contributors: 'alice:42;bob:17',
     activity_unavailable: false,
     error: '',
     ...overrides,

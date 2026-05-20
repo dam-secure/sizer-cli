@@ -75,13 +75,11 @@ export function writeListCsv(rows: readonly RepoListRow[]): string {
 export interface RepoSizedRow {
   // identity (copied from RepoListRow)
   full_name: string;
-  default_branch: string;
   size_kb: number;
   pushed_at: string;
   note: string;
 
   // sizing
-  commit_sha: string;
   total_files: number;
   excluded_global: number;
   excluded_repo: number;
@@ -98,8 +96,6 @@ export interface RepoSizedRow {
   committers_last_4w: number;
   committers_last_13w: number;
   committers_last_52w: number;
-  /** "alice:42;bob:17;..." (top 5). */
-  top_contributors: string;
   activity_unavailable: boolean;
 
   // diagnostics
@@ -109,11 +105,9 @@ export interface RepoSizedRow {
 
 export const SIZED_COLUMNS: ReadonlyArray<keyof RepoSizedRow> = Object.freeze([
   'full_name',
-  'default_branch',
   'size_kb',
   'pushed_at',
   'note',
-  'commit_sha',
   'total_files',
   'excluded_global',
   'excluded_repo',
@@ -128,7 +122,6 @@ export const SIZED_COLUMNS: ReadonlyArray<keyof RepoSizedRow> = Object.freeze([
   'committers_last_4w',
   'committers_last_13w',
   'committers_last_52w',
-  'top_contributors',
   'activity_unavailable',
   'error',
 ]);

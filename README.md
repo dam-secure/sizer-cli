@@ -175,12 +175,12 @@ provided.
 The CSV includes identity, sizing, activity, and diagnostics:
 
 ```text
-full_name, default_branch, size_kb, pushed_at, note,
-commit_sha, total_files, excluded_global, excluded_repo, counted_files,
+full_name, size_kb, pushed_at, note,
+total_files, excluded_global, excluded_repo, counted_files,
 truncated, has_damsecure_ignore, damsecure_ignore_lines,
 last_commit_at, commits_last_4w, commits_last_13w, commits_last_52w,
 committers_last_4w, committers_last_13w, committers_last_52w,
-top_contributors, activity_unavailable, error
+activity_unavailable, error
 ```
 
 Example terminal table:

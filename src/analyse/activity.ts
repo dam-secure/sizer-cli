@@ -14,7 +14,6 @@
  *   - last_commit_at
  *   - commits_last_{4w,13w,52w}
  *   - committers_last_{4w,13w,52w}
- *   - top_contributors  (top 5: "name:count;...", semicolon-joined)
  *   - activity_unavailable  (true iff git log threw; the row's other
  *                            activity numbers are -1 in that case)
  */
@@ -31,8 +30,6 @@ export interface ActivitySummary {
   committersLast4w: number;
   committersLast13w: number;
   committersLast52w: number;
-  /** Top 5 contributors over the full 52w window, ordered by count desc. */
-  topContributors: Array<{ name: string; commits: number }>;
   activityUnavailable: boolean;
 }
 
@@ -67,7 +64,6 @@ const UNAVAILABLE_SUMMARY: ActivitySummary = Object.freeze({
   committersLast4w: -1,
   committersLast13w: -1,
   committersLast52w: -1,
-  topContributors: [],
   activityUnavailable: true,
 });
 
@@ -122,7 +118,6 @@ export function summariseActivity(
   const committers4 = new Set<string>();
   const committers13 = new Set<string>();
   const committers52 = new Set<string>();
-  const totals52 = new Map<string, number>();
 
   for (const rec of records) {
     const t = Date.parse(rec.committedAt);
@@ -130,7 +125,6 @@ export function summariseActivity(
     if (t < fiftyTwoWeeksAgo) continue;
     commits52++;
     committers52.add(rec.author);
-    totals52.set(rec.author, (totals52.get(rec.author) ?? 0) + 1);
 
     if (t >= thirteenWeeksAgo) {
       commits13++;
@@ -142,15 +136,6 @@ export function summariseActivity(
     }
   }
 
-  const topContributors = Array.from(totals52.entries())
-    .sort((a, b) => {
-      // Primary: count desc. Secondary: name asc (deterministic tie-break).
-      if (b[1] !== a[1]) return b[1] - a[1];
-      return a[0].localeCompare(b[0]);
-    })
-    .slice(0, 5)
-    .map(([name, commits]) => ({ name, commits }));
-
   return {
     lastCommitAt,
     commitsLast4w: commits4,
@@ -159,26 +144,8 @@ export function summariseActivity(
     committersLast4w: committers4.size,
     committersLast13w: committers13.size,
     committersLast52w: committers52.size,
-    topContributors,
     activityUnavailable: false,
   };
-}
-
-/**
- * Format the topContributors array as a single CSV-friendly string:
- * `"alice:42;bob:17;..."`. Names with `:` or `;` are escaped — those
- * characters are forbidden in committer.name by git anyway, but defence in
- * depth: we replace them with `_`.
- */
-export function formatTopContributors(
-  top: readonly { name: string; commits: number }[]
-): string {
-  return top
-    .map(
-      ({ name, commits }) =>
-        `${name.replace(/[:;]/g, '_')}:${commits}`
-    )
-    .join(';');
 }
 
 /**

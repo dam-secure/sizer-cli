@@ -5,7 +5,7 @@
  *    extensions; verify total / excluded_global / excluded_repo / counted /
  *    has_damsecure_ignore / damsecure_ignore_lines + identity invariant.
  *  - Activity analysis (pure summariser): hand-crafted records exercise
- *    window inclusivity, unique committer counting, top-N tie-breaking.
+ *    window inclusivity and unique committer counting.
  *  - Activity analysis (integration): real repo with controlled commit
  *    timestamps via `GIT_COMMITTER_DATE` env vars.
  */
@@ -28,13 +28,11 @@ import {
   analyseActivity,
   summariseActivity,
   parseGitLog,
-  formatTopContributors,
   type ActivityRecord,
 } from '../analyse/activity.js';
 
 describe('analyseFiles — against a real seeded repo', () => {
   let workTree: string;
-  let commitSha: string;
 
   beforeAll(async () => {
     workTree = await mkdtemp(join(tmpdir(), 'sizer-analyse-'));
@@ -69,7 +67,6 @@ describe('analyseFiles — against a real seeded repo', () => {
     await git.add('.');
     await git.commit('initial');
     await git.raw(['branch', '-M', 'main']);
-    commitSha = (await git.revparse(['HEAD'])).trim();
   }, 30_000);
 
   afterAll(async () => {
@@ -79,7 +76,6 @@ describe('analyseFiles — against a real seeded repo', () => {
   it('reports total, excluded_global, excluded_repo, counted with the identity invariant', async () => {
     const result = await analyseFiles(simpleGit(workTree), { ref: 'HEAD' });
 
-    expect(result.commitSha).toBe(commitSha);
     expect(result.hasDamsecureIgnore).toBe(true);
     expect(result.damsecureIgnoreLines).toBe(2); // /secrets/ and private/
 
@@ -168,7 +164,7 @@ function rec(authorAndDate: { author: string; daysAgo: number }): ActivityRecord
   };
 }
 
-describe('summariseActivity — windows + uniques + top-N', () => {
+describe('summariseActivity — windows + uniques', () => {
   it('counts commits across nested 4w/13w/52w windows correctly', () => {
     const records = [
       rec({ author: 'alice', daysAgo: 3 }),     // <4w & <13w & <52w
@@ -197,34 +193,11 @@ describe('summariseActivity — windows + uniques + top-N', () => {
     expect(s.committersLast4w).toBe(2);
   });
 
-  it('top-5 contributors sorted by count desc with deterministic alpha tie-break', () => {
-    const records = [
-      ...Array(10).fill(0).map(() => rec({ author: 'edith', daysAgo: 1 })),
-      ...Array(8).fill(0).map(() => rec({ author: 'alice', daysAgo: 5 })),
-      ...Array(8).fill(0).map(() => rec({ author: 'zara', daysAgo: 3 })),
-      ...Array(5).fill(0).map(() => rec({ author: 'bob', daysAgo: 7 })),
-      ...Array(2).fill(0).map(() => rec({ author: 'carol', daysAgo: 11 })),
-      ...Array(1).fill(0).map(() => rec({ author: 'dan', daysAgo: 13 })),
-    ];
-
-    const s = summariseActivity(records, '2026-05-10T00:00:00Z', NOW);
-    expect(s.topContributors.map((c) => c.name)).toEqual([
-      'edith', // 10
-      'alice', // 8 (a < z)
-      'zara',  // 8
-      'bob',   // 5
-      'carol', // 2
-      // dan dropped (top 5 only)
-    ]);
-    expect(s.topContributors[1].commits).toBe(8);
-  });
-
   it('returns zeros (NOT -1) when records is empty', () => {
     const s = summariseActivity([], '', NOW);
     expect(s.commitsLast4w).toBe(0);
     expect(s.commitsLast52w).toBe(0);
     expect(s.committersLast52w).toBe(0);
-    expect(s.topContributors).toEqual([]);
     expect(s.activityUnavailable).toBe(false);
     expect(s.lastCommitAt).toBe('');
   });
@@ -259,27 +232,6 @@ describe('parseGitLog', () => {
 
   it('skips lines with fewer than 3 fields', () => {
     expect(parseGitLog('sha1\talice')).toEqual([]);
-  });
-});
-
-describe('formatTopContributors', () => {
-  it('joins as "name:count" semicolon-separated', () => {
-    expect(
-      formatTopContributors([
-        { name: 'alice', commits: 10 },
-        { name: 'bob', commits: 5 },
-      ])
-    ).toBe('alice:10;bob:5');
-  });
-
-  it('escapes : and ; in author names defensively', () => {
-    expect(
-      formatTopContributors([{ name: 'evil:name;here', commits: 1 }])
-    ).toBe('evil_name_here:1');
-  });
-
-  it('returns empty string for an empty list', () => {
-    expect(formatTopContributors([])).toBe('');
   });
 });
 
@@ -322,7 +274,7 @@ describe('analyseActivity — integration with controlled commit dates', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('produces the right windowed counts and top contributors', async () => {
+  it('produces the right windowed counts', async () => {
     const summary = await analyseActivity(simpleGit(dir), { now: NOW });
     expect(summary.activityUnavailable).toBe(false);
     expect(summary.commitsLast4w).toBe(2);
@@ -330,10 +282,6 @@ describe('analyseActivity — integration with controlled commit dates', () => {
     expect(summary.commitsLast52w).toBe(4);
     expect(summary.committersLast4w).toBe(2);
     expect(summary.committersLast52w).toBe(2);
-    expect(summary.topContributors.map((c) => `${c.name}:${c.commits}`)).toEqual([
-      'alice:2', // 2 inside 52w (3d ago + 60d ago); 500d ago excluded
-      'bob:2',
-    ]);
     expect(summary.lastCommitAt).toBeTruthy();
   });
 });

@@ -14,7 +14,6 @@
  *   - damsecure_ignore_lines — non-comment, non-blank pattern count
  *   - truncated            — best-effort flag (always false for git ls-tree;
  *                             the API path was the only one that truncated)
- *   - commit_sha           — resolved HEAD commit
  */
 
 import type { SimpleGit } from 'simple-git';
@@ -22,7 +21,6 @@ import { filterFiles, type FilterResult } from '../counting/fileFilter.js';
 import { parseIgnorePatterns } from '../matchers/index.js';
 
 export interface AnalyseFilesResult {
-  commitSha: string;
   totalFiles: number;
   excludedGlobal: number;
   excludedRepo: number;
@@ -64,7 +62,6 @@ export async function analyseFiles(
     : 0;
 
   return {
-    commitSha,
     totalFiles: allFiles.length,
     excludedGlobal: filterResult.excludedGlobal,
     excludedRepo: filterResult.excludedRepo,

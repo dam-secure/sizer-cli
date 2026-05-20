@@ -112,7 +112,6 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
     const row = result.rows[0];
     expect(row.full_name).toBe('acme/api');
     expect(row.error).toBe('');
-    expect(row.commit_sha).toMatch(/^[0-9a-f]{40}$/);
     // 5 files in the fixture: README.md, src/a.ts, logo.png, .damsecure-ignore, private/note.md
     expect(row.total_files).toBe(5);
     expect(row.excluded_global).toBe(1); // logo.png
