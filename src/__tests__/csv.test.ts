@@ -112,16 +112,17 @@ describe('writeSizedCsv', () => {
 });
 
 describe('renderSizedTable', () => {
-  it('renders a header, the data row, and a PR-window footnote', () => {
+  it('uses the same column headers and order as the sized CSV', () => {
     const out = renderSizedTable([
       makeSizedRow({ full_name: 'acme/api' }),
       makeSizedRow({ full_name: 'acme/web', total_files: 9012, counted_files: 5811 }),
     ]);
-    expect(out).toMatch(/REPO\s+PRS_1W/);
+    const headerLine = out.split('\n')[0];
+    // Header cells are the CSV column names, whitespace-separated.
+    expect(headerLine.trim().split(/\s+/)).toEqual([...SIZED_COLUMNS]);
     expect(out).toContain('acme/api');
     expect(out).toContain('acme/web');
     expect(out).toContain('TOTAL');
-    expect(out).toContain('cumulative');
   });
 
   it('handles an empty input gracefully', () => {

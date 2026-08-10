@@ -209,17 +209,7 @@ PR windows are cumulative counts of PRs created in the last 1 week, 4 weeks,
 **Pull requests: Read** on the PAT), the run fails immediately with a loud
 error — it does not soft-fail with empty PR columns.
 
-Example terminal table:
-
-```text
-[sizer] done — 12 repos sized in 16.1s
-REPO                 PRS_1W  PRS_4W  PRS_3M  PRS_12M  PRS_24M  AUTHORS_4W  COUNTED  COMMITTERS_4W  LAST_PR
--------------------  ------  ------  ------  -------  -------  ----------  -------  -------------  ----------
-acme/platform-api         4      12      40      160      184           4    1,368             11  2026-05-13
-acme/customer-portal      1       3      10       38       42           2      247              1  2026-04-23
--------------------  ------  ------  ------  -------  -------  ----------  -------  -------------  ----------
-TOTAL                     —       —       —        —      226           —    1,615              —           —
-```
+The terminal table uses the same column names and order as the CSV.
 
 ## How Sizing Works
 
