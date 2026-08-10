@@ -1,6 +1,6 @@
 {
   "name": "@damsecure/sizer",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Customer-runnable sizing & activity CLI for Dam Secure sales — emits a per-repo CSV fact sheet (pull-request counts/sizes, file count after standard exclusions, plus 4w/13w/52w commit + committer activity). No pricing logic.",
   "type": "module",
   "private": true,
