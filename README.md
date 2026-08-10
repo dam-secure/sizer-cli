@@ -5,31 +5,32 @@ facts Dam Secure needs to size your repos. You run it on your own machine, then
 decide whether to share the resulting CSV with Dam Secure.
 
 The tool does not run in Dam Secure infrastructure, does not phone home, and
-does not give Dam Secure access to your repositories. It only emits file-count
-and activity facts.
+does not give Dam Secure access to your repositories. It emits pull-request
+activity windows, file-count facts, and commit activity.
 
 ## Safety Highlights
 
 - Nothing contacts Dam Secure servers. The container only talks to GitHub:
-  `api.github.com` to enumerate repos and `github.com` to fetch git metadata.
+  `api.github.com` to enumerate repos and pull requests, and `github.com` to
+  fetch git metadata.
 - Repositories are not fully cloned or checked out. The sizer uses partial
   clones with `--filter=blob:none --no-checkout`, so it fetches `.git` tree and
   commit metadata, not source file contents.
 - Temporary git data lives inside the container and is deleted as each repo
   finishes.
-- The output is a facts-only CSV/table: file counts, exclusions, activity, and
-  diagnostics. It contains no pricing logic.
+- The output is a facts-only CSV/table: pull-request stats, file counts,
+  exclusions, activity, and diagnostics. It contains no pricing logic.
 
 ## What You Need
 
 - Docker, Docker Desktop, Colima, Podman, or another Docker-compatible runtime.
 - A GitHub personal access token with read access to the repositories you want
-  sized.
+  sized (see [Authentication](#authentication) for the exact permissions).
 - Network access from the container to `api.github.com` and `github.com`.
 
 ## Quick Start
 
-Create a GitHub PAT with read access to the repositories you want sized, then:
+Create a GitHub PAT with the permissions below, then:
 
 ```bash
 export GHPAT=github_pat_...
@@ -66,7 +67,8 @@ docker run --rm \
 ```
 
 Run an interactive checkbox prompt before sizing. Docker needs `-it` so the
-prompt can receive input:
+prompt can receive input. Only default-included repos appear (archived, forks,
+and empty repos stay excluded, including after invert):
 
 ```bash
 docker run --rm -it \
@@ -144,22 +146,36 @@ history is retained.
 
 ### Fine-Grained PAT
 
-Create a fine-grained token at:
+1. Open [Create a fine-grained personal access token](https://github.com/settings/personal-access-tokens/new).
+2. Set **Resource owner** to your user (or the org, if allowed).
+3. Under **Repository access**, choose **All repositories**, or **Only select
+   repositories** for the repos you want sized.
+4. Under **Permissions → Repository permissions**, set exactly:
 
-https://github.com/settings/personal-access-tokens/new
+   | Permission | Access |
+   |---|---|
+   | **Metadata** | Read-only (required; usually auto-selected) |
+   | **Contents** | Read-only |
+   | **Pull requests** | Read-only |
 
-Use the narrowest repository access that includes everything you want sized.
-Grant only:
+   Leave every other permission as **No access**. Do not grant write access.
+5. Generate the token, copy it, and export it as `GHPAT`.
 
-- Repository contents: read-only
-- Repository metadata: read-only
+What each permission is for:
+
+- **Metadata** — list repositories (`GET /user/repos`).
+- **Contents** — partial clone + file counts / commit activity.
+- **Pull requests** — PR counts and size fields (`changed_files`, `additions`,
+  `deletions`).
+
+Permission reference:
+https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens
 
 After the run, revoke the token:
-
 https://github.com/settings/personal-access-tokens
 
-Classic PATs also work with `repo` for private repositories or `public_repo` for
-public repositories, but fine-grained tokens are preferred.
+Classic PATs also work with `repo` (private) or `public_repo` (public only),
+but fine-grained tokens are preferred.
 
 ## Output
 
@@ -172,10 +188,14 @@ provided.
 --format table                # force terminal table
 ```
 
-The CSV includes identity, sizing, activity, and diagnostics:
+The CSV includes identity, pull-request windows, file sizing, activity, and
+diagnostics:
 
 ```text
-full_name, size_kb, pushed_at, note,
+full_name, size_kb, last_pr_at,
+prs_last_1w, prs_last_4w, prs_last_3m, prs_last_12m, prs_last_24m,
+pr_authors_last_1w, pr_authors_last_4w, pr_authors_last_3m,
+pr_authors_last_12m, pr_authors_last_24m,
 total_files, excluded_global, excluded_repo, counted_files,
 truncated, has_damsecure_ignore, damsecure_ignore_lines,
 last_commit_at, commits_last_4w, commits_last_13w, commits_last_52w,
@@ -183,24 +203,22 @@ committers_last_4w, committers_last_13w, committers_last_52w,
 activity_unavailable, error
 ```
 
+PR windows are cumulative counts of PRs created in the last 1 week, 4 weeks,
+3 months, 12 months, and 24 months. Month windows use 30-day months
+(90 / 365 / 730 days). If pull-request data cannot be loaded (usually missing
+**Pull requests: Read** on the PAT), the run fails immediately with a loud
+error — it does not soft-fail with empty PR columns.
+
 Example terminal table:
 
 ```text
 [sizer] done — 12 repos sized in 16.1s
-REPO                         FILES  EXCL_GLOBAL  EXCL_REPO  COUNTED  COMMITTERS_4W  COMMITTERS_13W  COMMITTERS_52W  PUSHED
----------------------------  -----  -----------  ---------  -------  -------------  --------------  --------------  ----------
-acme/platform-api            1,427           59          0    1,368             11              14              16  2026-05-13
-acme/customer-portal           267           20          0      247              1               1               1  2026-04-23
-acme/worker-service            149            2          0      147              1               2               2  2026-05-13
-acme/mobile-app                 87            1          0       86              2               2               2  2026-05-08
-acme/docs-site                  32            0          0       32              2               2               2  2026-05-08
-acme/legacy-admin               30            1          0       29              0               0               3  2025-07-27
-acme/design-system              24            1          0       23              0               1               1  2026-02-25
-acme/example-go                 15            2          0       13              0               0               1  2025-11-19
-acme/example-python              6            0          0        6              0               0               1  2025-11-20
-acme/empty-repo                  0            0          0        0              —               —               —  2026-02-05
----------------------------  -----  -----------  ---------  -------  -------------  --------------  --------------  ----------
-TOTAL                        2,037           86          0    1,951              —               —               —           —
+REPO                 PRS_1W  PRS_4W  PRS_3M  PRS_12M  PRS_24M  AUTHORS_4W  COUNTED  COMMITTERS_4W  LAST_PR
+-------------------  ------  ------  ------  -------  -------  ----------  -------  -------------  ----------
+acme/platform-api         4      12      40      160      184           4    1,368             11  2026-05-13
+acme/customer-portal      1       3      10       38       42           2      247              1  2026-04-23
+-------------------  ------  ------  ------  -------  -------  ----------  -------  -------------  ----------
+TOTAL                     —       —       —        —      226           —    1,615              —           —
 ```
 
 ## How Sizing Works
@@ -208,17 +226,20 @@ TOTAL                        2,037           86          0    1,951             
 For each included repository, the sizer:
 
 1. Enumerates repositories through the GitHub API.
-2. Partial-clones each selected repo with `--filter=blob:none --no-checkout`.
-3. Counts paths from git tree metadata.
-4. Applies Dam Secure's global ignore patterns.
-5. Applies repo-local `.damsecure-ignore` patterns if present.
-6. Computes recent activity from `git log`.
-7. Deletes the temporary clone.
+2. Fetches all pull requests via the GitHub GraphQL API (open, closed, and
+   merged).
+3. Aggregates PR and author counts over 1w / 4w / 3m / 12m / 24m windows.
+4. Partial-clones each selected repo with `--filter=blob:none --no-checkout`.
+5. Counts paths from git tree metadata.
+6. Applies Dam Secure's global ignore patterns.
+7. Applies repo-local `.damsecure-ignore` patterns if present.
+8. Computes recent commit activity from `git log`.
+9. Deletes the temporary clone.
 
 ## Privacy
 
-- The tool contacts GitHub only: `api.github.com` for enumeration and
-  `github.com` for cloning.
+- The tool contacts GitHub only: `api.github.com` for enumeration and PR
+  metadata, and `github.com` for cloning.
 - Nothing phones home to Dam Secure.
 - Source blobs are not checked out. The clone fetches tree and commit metadata.
 - Temporary clones live inside the container and are deleted after each repo.

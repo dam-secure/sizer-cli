@@ -34,21 +34,21 @@ export function renderSizedTable(
     pick: (r: RepoSizedRow) => string;
   }> = [
     { name: 'REPO', align: 'left', pick: (r) => r.full_name },
-    { name: 'FILES', align: 'right', pick: (r) => fmtNum(r.total_files) },
-    { name: 'EXCL_GLOBAL', align: 'right', pick: (r) => fmtNum(r.excluded_global) },
-    { name: 'EXCL_REPO', align: 'right', pick: (r) => fmtNum(r.excluded_repo) },
+    { name: 'PRS_1W', align: 'right', pick: (r) => fmtNum(r.prs_last_1w) },
+    { name: 'PRS_4W', align: 'right', pick: (r) => fmtNum(r.prs_last_4w) },
+    { name: 'PRS_3M', align: 'right', pick: (r) => fmtNum(r.prs_last_3m) },
+    { name: 'PRS_12M', align: 'right', pick: (r) => fmtNum(r.prs_last_12m) },
+    { name: 'PRS_24M', align: 'right', pick: (r) => fmtNum(r.prs_last_24m) },
+    { name: 'AUTHORS_4W', align: 'right', pick: (r) => fmtNum(r.pr_authors_last_4w) },
     { name: 'COUNTED', align: 'right', pick: (r) => fmtNum(r.counted_files) },
-    { name: 'COMMITS_4W', align: 'right', pick: (r) => fmtMaybeMissing(r.commits_last_4w, r.activity_unavailable) },
-    { name: 'COMMITS_13W', align: 'right', pick: (r) => fmtMaybeMissing(r.commits_last_13w, r.activity_unavailable) },
-    { name: 'COMMITS_52W', align: 'right', pick: (r) => fmtMaybeMissing(r.commits_last_52w, r.activity_unavailable) },
-    { name: 'COMMITTERS_4W', align: 'right', pick: (r) => fmtMaybeMissing(r.committers_last_4w, r.activity_unavailable) },
-    { name: 'COMMITTERS_13W', align: 'right', pick: (r) => fmtMaybeMissing(r.committers_last_13w, r.activity_unavailable) },
-    { name: 'COMMITTERS_52W', align: 'right', pick: (r) => fmtMaybeMissing(r.committers_last_52w, r.activity_unavailable) },
-    { name: 'PUSHED', align: 'left', pick: (r) => isoDate(r.pushed_at) },
+    {
+      name: 'COMMITTERS_4W',
+      align: 'right',
+      pick: (r) => fmtMaybeMissing(r.committers_last_4w, r.activity_unavailable),
+    },
+    { name: 'LAST_PR', align: 'left', pick: (r) => isoDate(r.last_pr_at) },
   ];
 
-  // Compute widths against the sorted rows so the column widths fit the
-  // values that will actually be displayed.
   const widths = cols.map((c) =>
     Math.max(c.name.length, ...sorted.map((r) => c.pick(r).length))
   );
@@ -57,38 +57,33 @@ export function renderSizedTable(
     cells.map((c, i) => pad(c, widths[i], cols[i].align)).join('  ');
 
   const headerLine = renderRow(cols.map((c) => c.name));
-  const separator = widths
-    .map((w) => '-'.repeat(w))
-    .join('  ');
-  const dataLines = sorted.map((r) =>
-    renderRow(cols.map((c) => c.pick(r)))
-  );
+  const separator = widths.map((w) => '-'.repeat(w)).join('  ');
+  const dataLines = sorted.map((r) => renderRow(cols.map((c) => c.pick(r))));
 
-  // Totals row (only over rows whose values are available, to avoid mixing -1).
+  const totalPrs24 = sorted.reduce(
+    (s, r) => s + (r.prs_last_24m < 0 ? 0 : r.prs_last_24m),
+    0
+  );
   const totalCounted = sorted.reduce((s, r) => s + Math.max(0, r.counted_files), 0);
-  const totalGlobal = sorted.reduce((s, r) => s + Math.max(0, r.excluded_global), 0);
-  const totalRepo = sorted.reduce((s, r) => s + Math.max(0, r.excluded_repo), 0);
-  const totalFiles = sorted.reduce((s, r) => s + Math.max(0, r.total_files), 0);
 
   const totalsLine = renderRow([
     'TOTAL',
-    fmtNum(totalFiles),
-    fmtNum(totalGlobal),
-    fmtNum(totalRepo),
+    '—',
+    '—',
+    '—',
+    '—',
+    fmtNum(totalPrs24),
+    '—',
     fmtNum(totalCounted),
-    '—',
-    '—',
-    '—',
-    '—',
-    '—',
     '—',
     '—',
   ]);
 
   const note = [
     '',
-    'Note: counted_files is the worst case before AI per-project exclusions',
-    '(typically 30-60% additional reduction in production).',
+    'Note: PR windows are cumulative (created in the last 1w / 4w / 3m / 12m / 24m).',
+    'Month windows use 30-day months (90 / 365 / 730 days).',
+    'counted_files is the worst-case file count before AI per-project exclusions.',
     '',
   ].join('\n');
 
@@ -115,6 +110,5 @@ function fmtMaybeMissing(n: number, unavailable: boolean): string {
 
 function isoDate(iso: string): string {
   if (!iso) return '—';
-  // Show only the date portion (YYYY-MM-DD) — the full timestamp is in the CSV.
   return iso.slice(0, 10);
 }

@@ -73,13 +73,24 @@ export function writeListCsv(rows: readonly RepoListRow[]): string {
  * deliberate v1 boundary — sales applies pricing math on its side.
  */
 export interface RepoSizedRow {
-  // identity (copied from RepoListRow)
+  // identity
   full_name: string;
   size_kb: number;
-  pushed_at: string;
-  note: string;
 
-  // sizing
+  // pull-request sizing (primary model; -1 if unavailable)
+  last_pr_at: string;
+  prs_last_1w: number;
+  prs_last_4w: number;
+  prs_last_3m: number;
+  prs_last_12m: number;
+  prs_last_24m: number;
+  pr_authors_last_1w: number;
+  pr_authors_last_4w: number;
+  pr_authors_last_3m: number;
+  pr_authors_last_12m: number;
+  pr_authors_last_24m: number;
+
+  // file sizing (still collected via partial clone)
   total_files: number;
   excluded_global: number;
   excluded_repo: number;
@@ -106,8 +117,17 @@ export interface RepoSizedRow {
 export const SIZED_COLUMNS: ReadonlyArray<keyof RepoSizedRow> = Object.freeze([
   'full_name',
   'size_kb',
-  'pushed_at',
-  'note',
+  'last_pr_at',
+  'prs_last_1w',
+  'prs_last_4w',
+  'prs_last_3m',
+  'prs_last_12m',
+  'prs_last_24m',
+  'pr_authors_last_1w',
+  'pr_authors_last_4w',
+  'pr_authors_last_3m',
+  'pr_authors_last_12m',
+  'pr_authors_last_24m',
   'total_files',
   'excluded_global',
   'excluded_repo',

@@ -5,11 +5,22 @@
  * limits with backoff) + `@octokit/plugin-retry` (transient 5xx). Pagination
  * goes through `octokit.paginate` so we naturally consume every page without
  * leaking the cursor outside this file.
+ *
+ * Pull-request sizing uses GraphQL so each page returns createdAt + author
+ * without an N+1 REST get-PR loop.
  */
 
 import { Octokit } from '@octokit/rest';
 import { throttling } from '@octokit/plugin-throttling';
 import { retry } from '@octokit/plugin-retry';
+import {
+  aggregatePullRequests,
+  EMPTY_PR_STATS,
+  PullRequestFetchError,
+  type PullRequestNode,
+  type PullRequestStats,
+  type PullRequestState,
+} from '../analyse/pullRequests.js';
 import type {
   EnumerateOptions,
   RepoListing,
@@ -18,6 +29,29 @@ import type {
 } from './types.js';
 
 const ThrottledOctokit = Octokit.plugin(throttling, retry);
+
+const PR_PAGE_SIZE = 100;
+
+const PULL_REQUESTS_QUERY = `
+  query($owner: String!, $name: String!, $cursor: String) {
+    repository(owner: $owner, name: $name) {
+      pullRequests(first: ${PR_PAGE_SIZE}, after: $cursor, states: [OPEN, CLOSED, MERGED], orderBy: {field: CREATED_AT, direction: DESC}) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          number
+          state
+          createdAt
+          author {
+            login
+          }
+        }
+      }
+    }
+  }
+`;
 
 export interface GitHubEnumeratorOptions {
   /** Optional override for testing (e.g., to point at a local mock). */
@@ -137,6 +171,61 @@ export class GitHubEnumerator implements ScmEnumerator {
       });
   }
 
+  /**
+   * Paginate every PR on `owner/repo` via GraphQL and aggregate sizing facts.
+   * Requires a fine-grained PAT with **Pull requests: Read** (or classic `repo`).
+   */
+  async fetchPullRequestStats(
+    fullName: string,
+    options: { now?: Date } = {}
+  ): Promise<PullRequestStats> {
+    const slash = fullName.indexOf('/');
+    if (slash <= 0 || slash === fullName.length - 1) {
+      throw new PullRequestFetchError(
+        `Cannot fetch pull requests for invalid repository name "${fullName}".`
+      );
+    }
+    const owner = fullName.slice(0, slash);
+    const name = fullName.slice(slash + 1);
+
+    try {
+      const nodes: PullRequestNode[] = [];
+      let cursor: string | null = null;
+      let hasNextPage = true;
+
+      while (hasNextPage) {
+        const data = (await this.client.graphql(PULL_REQUESTS_QUERY, {
+          owner,
+          name,
+          cursor,
+        })) as PullRequestsQueryResult;
+
+        const repo = data.repository;
+        if (!repo) {
+          return { ...EMPTY_PR_STATS };
+        }
+
+        for (const node of repo.pullRequests.nodes) {
+          if (!node) continue;
+          nodes.push({
+            number: node.number,
+            state: normalizePrState(node.state),
+            createdAt: node.createdAt,
+            authorLogin: node.author?.login ?? null,
+          });
+        }
+
+        hasNextPage = repo.pullRequests.pageInfo.hasNextPage;
+        cursor = repo.pullRequests.pageInfo.endCursor;
+      }
+
+      return aggregatePullRequests(nodes, { now: options.now });
+    } catch (err) {
+      if (err instanceof PullRequestFetchError) throw err;
+      throw mapPullRequestFetchError(err, fullName);
+    }
+  }
+
   private toListing(repo: GitHubRepo): RepoListing {
     const cloneUrl = buildAuthenticatedCloneUrl(
       repo.clone_url ?? repo.html_url ?? `https://github.com/${repo.full_name}.git`,
@@ -171,6 +260,38 @@ interface GitHubRepo {
   pushed_at?: string | null;
   archived?: boolean;
   fork?: boolean;
+}
+
+interface PullRequestsQueryResult {
+  repository: {
+    pullRequests: {
+      pageInfo: {
+        hasNextPage: boolean;
+        endCursor: string | null;
+      };
+      nodes: Array<{
+        number: number;
+        state: string;
+        createdAt: string;
+        author: { login: string } | null;
+      } | null>;
+    };
+  } | null;
+}
+
+function normalizePrState(state: string): PullRequestState {
+  if (state === 'OPEN' || state === 'MERGED' || state === 'CLOSED') return state;
+  return 'CLOSED';
+}
+
+function mapPullRequestFetchError(err: unknown, fullName: string): PullRequestFetchError {
+  const message = err instanceof Error ? err.message : String(err);
+  return new PullRequestFetchError(
+    `Failed to fetch pull requests for ${fullName}. ` +
+      `Check that the PAT has Repository permission "Pull requests: Read-only" ` +
+      `(see README Authentication).\n` +
+      `Underlying error: ${message.split('\n')[0]}`
+  );
 }
 
 /**

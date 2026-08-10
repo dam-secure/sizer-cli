@@ -1,0 +1,5 @@
+full_name,size_kb,last_pr_at,prs_last_1w,prs_last_4w,prs_last_3m,prs_last_12m,prs_last_24m,pr_authors_last_1w,pr_authors_last_4w,pr_authors_last_3m,pr_authors_last_12m,pr_authors_last_24m,total_files,excluded_global,excluded_repo,counted_files,truncated,has_damsecure_ignore,damsecure_ignore_lines,last_commit_at,commits_last_4w,commits_last_13w,commits_last_52w,committers_last_4w,committers_last_13w,committers_last_52w,activity_unavailable,error
+dam-secure/damast,7952,2026-08-06T10:53:43Z,13,97,97,97,97,1,1,1,1,1,1595,4,0,1591,false,false,0,2026-08-06T18:47:01+10:00,459,459,459,3,3,3,false,
+dam-secure/dam-kevlar,501,2026-04-22T23:21:07Z,0,0,0,2,2,0,0,0,1,1,36,0,0,36,false,false,0,2026-04-23T09:21:15+10:00,0,0,7,0,0,1,false,
+dam-secure/damsecure,527,,0,0,0,0,0,0,0,0,0,0,113,5,0,108,false,false,0,2026-02-09T11:46:11Z,0,0,100,0,0,1,false,
+dam-secure/cwe-parser,49,,0,0,0,0,0,0,0,0,0,0,9,1,0,8,false,false,0,2025-12-21T10:44:34+11:00,0,0,3,0,0,1,false,

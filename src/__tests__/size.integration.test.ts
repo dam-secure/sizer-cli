@@ -96,6 +96,19 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
           isEmpty: false,
         },
       ],
+      fetchPullRequestStats: async () => ({
+        lastPrAt: '2026-07-01T00:00:00Z',
+        prsLast1w: 1,
+        prsLast4w: 2,
+        prsLast3m: 3,
+        prsLast12m: 3,
+        prsLast24m: 3,
+        prAuthorsLast1w: 1,
+        prAuthorsLast4w: 1,
+        prAuthorsLast3m: 2,
+        prAuthorsLast12m: 2,
+        prAuthorsLast24m: 2,
+      }),
     };
     vi.mocked(createEnumerator).mockReturnValue(fakeEnumerator);
 
@@ -120,6 +133,9 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
     expect(row.has_damsecure_ignore).toBe(true);
     expect(row.damsecure_ignore_lines).toBe(1);
     expect(row.activity_unavailable).toBe(false);
+    expect(row.prs_last_4w).toBe(2);
+    expect(row.prs_last_24m).toBe(3);
+    expect(row.last_pr_at).toBe('2026-07-01T00:00:00Z');
     // Activity columns should NOT be -1 since we have 1 commit.
     expect(row.commits_last_52w).toBeGreaterThanOrEqual(1);
 
@@ -128,6 +144,7 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
     expect(csvContent).toContain('acme/api');
     expect(csvContent).not.toContain('acme/ignored');
     expect(csvContent).toContain('counted_files');
+    expect(csvContent).toContain('prs_last_4w');
     // No tier / credits columns:
     expect(csvContent).not.toMatch(/\btier\b/i);
     expect(csvContent).not.toMatch(/\bcredits?\b/i);
@@ -184,6 +201,19 @@ describe('runSizeCommand — end-to-end against a local bare fixture', () => {
           isEmpty: false,
         },
       ],
+      fetchPullRequestStats: async () => ({
+        lastPrAt: '',
+        prsLast1w: 0,
+        prsLast4w: 0,
+        prsLast3m: 0,
+        prsLast12m: 0,
+        prsLast24m: 0,
+        prAuthorsLast1w: 0,
+        prAuthorsLast4w: 0,
+        prAuthorsLast3m: 0,
+        prAuthorsLast12m: 0,
+        prAuthorsLast24m: 0,
+      }),
     };
     vi.mocked(createEnumerator).mockReturnValue(fakeEnumerator);
 

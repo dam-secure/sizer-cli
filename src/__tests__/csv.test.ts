@@ -35,8 +35,17 @@ function makeSizedRow(overrides: Partial<RepoSizedRow> = {}): RepoSizedRow {
   return {
     full_name: 'acme/api',
     size_kb: 1234,
-    pushed_at: '2026-05-10T12:34:56Z',
-    note: '',
+    last_pr_at: '2026-05-09T10:00:00Z',
+    prs_last_1w: 1,
+    prs_last_4w: 4,
+    prs_last_3m: 10,
+    prs_last_12m: 20,
+    prs_last_24m: 30,
+    pr_authors_last_1w: 1,
+    pr_authors_last_4w: 2,
+    pr_authors_last_3m: 3,
+    pr_authors_last_12m: 4,
+    pr_authors_last_24m: 5,
     total_files: 100,
     excluded_global: 30,
     excluded_repo: 10,
@@ -96,7 +105,6 @@ describe('writeSizedCsv', () => {
   it('serialises booleans as "true"/"false"', () => {
     const csv = writeSizedCsv([makeSizedRow({ truncated: true, has_damsecure_ignore: false })]);
     const dataLine = csv.split('\n')[1];
-    // truncated is index 10, has_damsecure_ignore is index 11
     const cells = dataLine.split(',');
     expect(cells[SIZED_COLUMNS.indexOf('truncated')]).toBe('true');
     expect(cells[SIZED_COLUMNS.indexOf('has_damsecure_ignore')]).toBe('false');
@@ -104,16 +112,16 @@ describe('writeSizedCsv', () => {
 });
 
 describe('renderSizedTable', () => {
-  it('renders a header, the data row, and a worst-case footnote', () => {
+  it('renders a header, the data row, and a PR-window footnote', () => {
     const out = renderSizedTable([
       makeSizedRow({ full_name: 'acme/api' }),
       makeSizedRow({ full_name: 'acme/web', total_files: 9012, counted_files: 5811 }),
     ]);
-    expect(out).toMatch(/REPO\s+FILES/);
+    expect(out).toMatch(/REPO\s+PRS_1W/);
     expect(out).toContain('acme/api');
     expect(out).toContain('acme/web');
     expect(out).toContain('TOTAL');
-    expect(out).toContain('worst case');
+    expect(out).toContain('cumulative');
   });
 
   it('handles an empty input gracefully', () => {
@@ -127,13 +135,10 @@ describe('renderSizedTable', () => {
         activity_unavailable: true,
         commits_last_4w: -1,
         committers_last_4w: -1,
-        pushed_at: '2026-05-10T12:00:00Z',
+        last_pr_at: '2026-05-10T12:00:00Z',
       }),
     ]);
     expect(out).toContain('—');
-    // We test for a NUMERIC -1 (whitespace-bordered) rather than `-1` as a
-    // substring, because dates like `2026-05-10` contain `5-1`.
     expect(out).not.toMatch(/(^|\s)-1(\s|$)/);
   });
 });
-

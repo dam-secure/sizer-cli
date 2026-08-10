@@ -6,6 +6,8 @@
  * GitHub / GitLab / Bitbucket / Azure.
  */
 
+import type { PullRequestStats } from '../analyse/pullRequests.js';
+
 /**
  * The minimal per-repo metadata the rest of the pipeline depends on. Anything
  * provider-specific (e.g., GitHub's `pushed_at` granularity, GitLab's `default_branch`
@@ -63,6 +65,23 @@ export interface ScmEnumerator {
    * CLI maps those to user-facing messages in `commands/list.ts`).
    */
   enumerate(scope: ScmScope, opts: EnumerateOptions): Promise<RepoListing[]>;
+
+  /**
+   * Optional: fetch aggregated pull-request sizing facts for one repo.
+   * GitHub implements this; other providers leave it undefined in v1.
+   */
+  fetchPullRequestStats?(
+    fullName: string,
+    opts?: { now?: Date }
+  ): Promise<PullRequestStats>;
+}
+
+export function isPullRequestCapable(
+  enumerator: ScmEnumerator
+): enumerator is ScmEnumerator & {
+  fetchPullRequestStats: NonNullable<ScmEnumerator['fetchPullRequestStats']>;
+} {
+  return typeof enumerator.fetchPullRequestStats === 'function';
 }
 
 /**

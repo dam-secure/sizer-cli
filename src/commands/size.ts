@@ -5,6 +5,7 @@
  *                                         →  enumerate repos via SCM
  *   apply default included + ignored repos + optional interactive deselect
  *                                         →  pLimit(5) per repo:
+ *                                              fetchPullRequestStats (GitHub GraphQL)
  *                                              partialClone
  *                                              analyseFiles
  *                                              analyseActivity (skipped if --no-activity)
@@ -18,13 +19,22 @@
 import { writeFile } from 'node:fs/promises';
 import pLimit from 'p-limit';
 import { simpleGit } from 'simple-git';
+import {
+  PullRequestFetchError,
+  UNAVAILABLE_PR_STATS,
+  type PullRequestStats,
+} from '../analyse/pullRequests.js';
 import { preflight } from '../preflight.js';
 import {
   DEFAULT_SCOPE_NOTICE,
   createEnumerator,
   resolveScope,
 } from '../scm/factory.js';
-import type { RepoListing } from '../scm/types.js';
+import {
+  isPullRequestCapable,
+  type RepoListing,
+  type ScmEnumerator,
+} from '../scm/types.js';
 import { listingToRow } from './list.js';
 import { writeSizedCsv, type RepoListRow, type RepoSizedRow } from '../reporting/csv.js';
 import { renderSizedTable } from '../reporting/table.js';
@@ -122,6 +132,10 @@ export async function runSizeCommand(
     );
   }
 
+  // Fail fast on PR access before cloning anything. Missing Pull requests: Read
+  // must be a loud error, not an empty PR column.
+  await fetchPrStats(enumerator, included[0].full_name, options.now);
+
   // 2. Workspace + cleanup wiring.
   const workspace = await createWorkspace();
   registerProcessCleanup(workspace);
@@ -145,7 +159,7 @@ export async function runSizeCommand(
     const results = await Promise.all(
       included.map((row) =>
         limiter(() =>
-          sizeOneRepo(row, listingsByName, workspace, options, {
+          sizeOneRepo(row, listingsByName, enumerator, workspace, options, {
             reporter,
             takeIndex: () => ++nextIndex,
             total: included.length,
@@ -246,6 +260,7 @@ function warnForUnknownIgnoredRepos(
 async function sizeOneRepo(
   row: RepoListRow,
   listingsByName: Map<string, RepoListing>,
+  enumerator: ScmEnumerator,
   workspace: WorkspaceHandle,
   options: SizeCommandOptions,
   progress: ProgressContext
@@ -282,6 +297,9 @@ async function sizeOneRepo(
     );
   }
 
+  // PR fetch runs in parallel with clone; failure aborts the whole run.
+  const prStatsPromise = fetchPrStats(enumerator, row.full_name, options.now);
+
   const repoDir = await workspace.reserveRepo(row.full_name);
   try {
     const cloneRes = await partialClone(listing.cloneUrl, repoDir);
@@ -294,11 +312,13 @@ async function sizeOneRepo(
       ? null
       : await analyseActivity(git, options.now ? { now: options.now } : {});
 
+    const prStats = await prStatsPromise;
+
     const result: RepoSizedRow = {
       full_name: row.full_name,
       size_kb: row.size_kb,
-      pushed_at: row.pushed_at,
-      note: row.note,
+
+      ...prFields(prStats),
 
       total_files: filesResult.totalFiles,
       excluded_global: filesResult.excludedGlobal,
@@ -323,18 +343,69 @@ async function sizeOneRepo(
     const summary = formatRepoSummary(result);
     return reportDone(result, summary);
   } catch (err) {
+    if (err instanceof PullRequestFetchError) throw err;
     const message = err instanceof Error ? err.message : String(err);
+    let prStats: PullRequestStats = UNAVAILABLE_PR_STATS;
+    try {
+      prStats = await prStatsPromise;
+    } catch (prErr) {
+      if (prErr instanceof PullRequestFetchError) throw prErr;
+      throw prErr;
+    }
     if (isEmptyHeadError(message)) {
-      return reportDone(emptyRepoRow(row), '0 files (empty repo)');
+      return reportDone(emptyRepoRow(row, prStats), '0 files (empty repo)');
     }
     // Single-line variant for the progress sink so multi-line git fatals
     // don't blow out the terminal — the full message still lands in the
     // CSV's `error` column.
     const oneLine = message.split('\n')[0].slice(0, 120);
-    return reportDone(errorRow(row, message), `ERROR: ${oneLine}`);
+    return reportDone(errorRow(row, message, prStats), `ERROR: ${oneLine}`);
   } finally {
     await workspace.releaseRepo(repoDir);
   }
+}
+
+async function fetchPrStats(
+  enumerator: ScmEnumerator,
+  fullName: string,
+  now: Date | undefined
+): Promise<PullRequestStats> {
+  if (!isPullRequestCapable(enumerator)) {
+    throw new PullRequestFetchError(
+      `Pull-request sizing is not supported for this SCM provider. ` +
+        `GitHub PATs require Repository permission "Pull requests: Read-only".`
+    );
+  }
+  return enumerator.fetchPullRequestStats(fullName, now ? { now } : {});
+}
+
+function prFields(stats: PullRequestStats): Pick<
+  RepoSizedRow,
+  | 'last_pr_at'
+  | 'prs_last_1w'
+  | 'prs_last_4w'
+  | 'prs_last_3m'
+  | 'prs_last_12m'
+  | 'prs_last_24m'
+  | 'pr_authors_last_1w'
+  | 'pr_authors_last_4w'
+  | 'pr_authors_last_3m'
+  | 'pr_authors_last_12m'
+  | 'pr_authors_last_24m'
+> {
+  return {
+    last_pr_at: stats.lastPrAt,
+    prs_last_1w: stats.prsLast1w,
+    prs_last_4w: stats.prsLast4w,
+    prs_last_3m: stats.prsLast3m,
+    prs_last_12m: stats.prsLast12m,
+    prs_last_24m: stats.prsLast24m,
+    pr_authors_last_1w: stats.prAuthorsLast1w,
+    pr_authors_last_4w: stats.prAuthorsLast4w,
+    pr_authors_last_3m: stats.prAuthorsLast3m,
+    pr_authors_last_12m: stats.prAuthorsLast12m,
+    pr_authors_last_24m: stats.prAuthorsLast24m,
+  };
 }
 
 function isEmptyHeadError(message: string): boolean {
@@ -345,12 +416,14 @@ function isEmptyHeadError(message: string): boolean {
   );
 }
 
-function emptyRepoRow(row: RepoListRow): RepoSizedRow {
+function emptyRepoRow(
+  row: RepoListRow,
+  prStats: PullRequestStats = UNAVAILABLE_PR_STATS
+): RepoSizedRow {
   return {
     full_name: row.full_name,
     size_kb: row.size_kb,
-    pushed_at: row.pushed_at,
-    note: row.note,
+    ...prFields(prStats),
     total_files: 0,
     excluded_global: 0,
     excluded_repo: 0,
@@ -372,25 +445,31 @@ function emptyRepoRow(row: RepoListRow): RepoSizedRow {
 
 /**
  * One-line summary for the progress sink. Format:
- *   `97 files (10 excl_global, 0 excl_repo, 87 counted), 0 commits/4w`
- *
- * When activity is unavailable or `--no-activity`, the activity portion is
- * dropped.
+ *   `12 PRs/4w, 97 files (87 counted), 0 commits/4w`
  */
 function formatRepoSummary(row: RepoSizedRow): string {
-  const filePart = `${row.total_files.toLocaleString('en-US')} files (${row.excluded_global.toLocaleString('en-US')} excl_global, ${row.excluded_repo.toLocaleString('en-US')} excl_repo, ${row.counted_files.toLocaleString('en-US')} counted)`;
-  if (row.activity_unavailable || row.commits_last_4w < 0) {
-    return filePart;
+  const parts: string[] = [];
+  if (row.prs_last_4w >= 0) {
+    parts.push(`${row.prs_last_4w.toLocaleString('en-US')} PRs/4w`);
   }
-  return `${filePart}, ${row.commits_last_4w.toLocaleString('en-US')} commits/4w`;
+  parts.push(
+    `${row.total_files.toLocaleString('en-US')} files (${row.excluded_global.toLocaleString('en-US')} excl_global, ${row.excluded_repo.toLocaleString('en-US')} excl_repo, ${row.counted_files.toLocaleString('en-US')} counted)`
+  );
+  if (!row.activity_unavailable && row.commits_last_4w >= 0) {
+    parts.push(`${row.commits_last_4w.toLocaleString('en-US')} commits/4w`);
+  }
+  return parts.join(', ');
 }
 
-function errorRow(row: RepoListRow, message: string): RepoSizedRow {
+function errorRow(
+  row: RepoListRow,
+  message: string,
+  prStats: PullRequestStats = UNAVAILABLE_PR_STATS
+): RepoSizedRow {
   return {
     full_name: row.full_name,
     size_kb: row.size_kb,
-    pushed_at: row.pushed_at,
-    note: row.note,
+    ...prFields(prStats),
     total_files: -1,
     excluded_global: -1,
     excluded_repo: -1,

@@ -42,6 +42,7 @@ describe('resolveToken', () => {
       expect(msg).toContain(ENV_TOKEN);
       expect(msg).toContain('Contents: Read-only');
       expect(msg).toContain('Metadata: Read-only');
+      expect(msg).toContain('Pull requests: Read-only');
     }
   });
 });

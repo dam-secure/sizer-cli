@@ -52,9 +52,10 @@ export function resolveToken(
       `To create a fine-grained PAT:\n` +
       `  1. https://github.com/settings/personal-access-tokens/new\n` +
       `  2. Repository access: All repositories (or select the target org's repos)\n` +
-      `  3. Permissions ▸ Repository ▸ Contents: Read-only\n` +
-      `  4. Permissions ▸ Repository ▸ Metadata: Read-only (auto-included)\n` +
-      `  5. Generate, copy, and re-run with --token <pat> or export ${ENV_TOKEN}=<pat>.`
+      `  3. Permissions ▸ Repository ▸ Metadata: Read-only (auto-included)\n` +
+      `  4. Permissions ▸ Repository ▸ Contents: Read-only\n` +
+      `  5. Permissions ▸ Repository ▸ Pull requests: Read-only\n` +
+      `  6. Generate, copy, and re-run with --token <pat> or export ${ENV_TOKEN}=<pat>.`
   );
 }
 

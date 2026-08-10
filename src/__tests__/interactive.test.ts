@@ -38,6 +38,17 @@ const rows: RepoListRow[] = [
     included: false,
     note: '',
   },
+  {
+    full_name: 'acme/forked',
+    default_branch: 'main',
+    size_kb: 10,
+    pushed_at: '',
+    is_archived: false,
+    is_fork: true,
+    is_empty: false,
+    included: false,
+    note: '',
+  },
 ];
 
 function fakePrompt(selected: string[] = []): typeof checkbox {
@@ -66,10 +77,11 @@ describe('interactiveDeselect', () => {
     expect(promptCheckbox).not.toHaveBeenCalled();
   });
 
-  it('uses stderr for prompt output, sorts defaults first, and mirrors included defaults', async () => {
+  it('omits archived/fork defaults so invert cannot select them', async () => {
     const input = fakeInput(true);
     const output = fakeOutput(true);
-    const promptCheckbox = fakePrompt(['acme/archive']);
+    // Simulate invert: none of the (previously checked) active repos selected.
+    const promptCheckbox = fakePrompt([]);
 
     const result = await interactiveDeselect(rows, {
       promptCheckbox,
@@ -90,19 +102,39 @@ describe('interactiveDeselect', () => {
             value: 'acme/z-api',
             checked: true,
           }),
-          expect.objectContaining({
-            name: 'acme/archive  (archived; 45 KB)',
-            value: 'acme/archive',
-            checked: false,
-          }),
         ],
       }),
       { input, output }
     );
+    // Archived/fork never appear as choices and stay excluded.
+    const choiceValues = (
+      vi.mocked(promptCheckbox).mock.calls[0][0] as {
+        choices: Array<{ value: string }>;
+      }
+    ).choices.map((c) => c.value);
+    expect(choiceValues).not.toContain('acme/archive');
+    expect(choiceValues).not.toContain('acme/forked');
+
     expect(result.map((r) => [r.full_name, r.included])).toEqual([
       ['acme/z-api', false],
       ['acme/a-web', false],
-      ['acme/archive', true],
+      ['acme/archive', false],
+      ['acme/forked', false],
+    ]);
+  });
+
+  it('keeps selected active repos included', async () => {
+    const result = await interactiveDeselect(rows, {
+      promptCheckbox: fakePrompt(['acme/a-web']),
+      input: fakeInput(true),
+      output: fakeOutput(true),
+    });
+
+    expect(result.map((r) => [r.full_name, r.included])).toEqual([
+      ['acme/z-api', false],
+      ['acme/a-web', true],
+      ['acme/archive', false],
+      ['acme/forked', false],
     ]);
   });
 });

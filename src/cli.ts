@@ -40,7 +40,7 @@ function makeProgram(): Command {
   program
     .name('damsecure-sizer')
     .description(
-      'Produce a sizing + activity fact sheet for your repositories that Dam Secure can quote against — without giving us access to your code. No pricing logic; the output CSV is the deliverable.'
+      'Produce a pull-request, file-count, and activity fact sheet for your repositories that Dam Secure can quote against — without giving us access to your code. No pricing logic; the output CSV is the deliverable.'
     )
     .version(VERSION)
     .option(

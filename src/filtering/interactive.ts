@@ -3,7 +3,10 @@
  * before `size`, lets the buyer remove repos they don't want measured
  * (decision D-A in the plan).
  *
- * Default selection mirrors the `included=` column already on the list rows.
+ * Only repos that are already `included=true` appear in the prompt (active
+ * non-archived / non-fork / non-empty by default). Archived, forks, and empty
+ * repos stay excluded and are omitted so checkbox invert (`i`) cannot
+ * accidentally select them.
  */
 
 import { checkbox } from '@inquirer/prompts';
@@ -31,17 +34,25 @@ export async function interactiveDeselect(
 
   assertInteractiveTty(input, output);
 
-  const choices = [...rows]
-    .sort(compareInteractiveRows)
-    .map((r) => ({
-      name: `${r.full_name}  (${formatBadges(r)}${r.size_kb} KB)`,
-      value: r.full_name,
-      checked: r.included,
-    }));
+  // Only default-included repos are choosable. Leaving archived/fork/empty in
+  // the list (unchecked) makes Inquirer's invert select exactly those.
+  const choosable = [...rows]
+    .filter((r) => r.included)
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+
+  if (choosable.length === 0) {
+    return rows.map((r) => ({ ...r, included: false }));
+  }
+
+  const choices = choosable.map((r) => ({
+    name: `${r.full_name}  (${formatBadges(r)}${r.size_kb} KB)`,
+    value: r.full_name,
+    checked: true,
+  }));
 
   const selectedNames = await prompt({
     message:
-      'Select repositories to size (space toggles, enter confirms; defaults match the `included` column):',
+      'Select repositories to size (space toggles, `i` inverts, enter confirms). Archived/fork/empty repos are omitted and stay excluded:',
     choices,
     pageSize: 20,
     loop: false,
@@ -51,12 +62,11 @@ export async function interactiveDeselect(
   });
 
   const selected = new Set(selectedNames);
-  return rows.map((r) => ({ ...r, included: selected.has(r.full_name) }));
-}
-
-function compareInteractiveRows(a: RepoListRow, b: RepoListRow): number {
-  if (a.included !== b.included) return a.included ? -1 : 1;
-  return a.full_name.localeCompare(b.full_name);
+  return rows.map((r) => ({
+    ...r,
+    // Non-choosable rows (archived/fork/empty) remain excluded.
+    included: r.included && selected.has(r.full_name),
+  }));
 }
 
 function assertInteractiveTty(
